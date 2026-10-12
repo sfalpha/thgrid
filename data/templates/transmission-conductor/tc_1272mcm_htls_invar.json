@@ -1,0 +1,16 @@
+{
+  "id": "tc_1272mcm_htls_invar",
+  "kind": "TRANSMISSION_CONDUCTOR",
+  "description": "EGAT standard conductor",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-10T15:48:29.939Z",
+  "updatedAt": "2026-10-10T15:48:29.939Z",
+  "data": {
+    "name": "TC_1272MCM_HTLS_INVAR",
+    "size": 1272,
+    "unit": "MCM",
+    "type": "HTLS/INVAR"
+  }
+}

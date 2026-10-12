@@ -1,0 +1,46 @@
+{
+  "id": "bay_line_breaker_and_a_half",
+  "kind": "SUBSTATION_BAY",
+  "description": "EGAT standard substation bay",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-11T01:51:21.559Z",
+  "updatedAt": "2026-10-11T03:58:55.234Z",
+  "data": {
+    "name": "BAY_LINE_BREAKER_AND_A_HALF",
+    "bayTemplateType": "TAKEOFF",
+    "arrangements": [
+      "BREAKER_AND_A_HALF"
+    ],
+    "equipments": [
+      {
+        "equipmentType": "DISCONNECTING_SWITCH",
+        "sequence": 1
+      },
+      {
+        "equipmentType": "CIRCUIT_BREAKER",
+        "sequence": 2
+      },
+      {
+        "equipmentType": "DISCONNECTING_SWITCH",
+        "sequence": 3
+      },
+      {
+        "equipmentType": "GROUND_SWITCH",
+        "sequence": 4,
+        "lineSide": true
+      },
+      {
+        "equipmentType": "CURRENT_TRANSFORMER",
+        "sequence": 5,
+        "lineSide": true
+      },
+      {
+        "equipmentType": "POTENTIAL_TRANSFORMER",
+        "sequence": 6,
+        "lineSide": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "id": "tr_230kv_115kv_a22kv_200mva_onaf",
+  "kind": "POWER_TRANSFORMER",
+  "description": "EGAT standard power transformer",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-11T03:58:55.234Z",
+  "data": {
+    "name": "TR_230KV_115KV_A22KV_200MVA_ONAF",
+    "modules": 1,
+    "windings": {
+      "H": {
+        "windingSide": "PRIMARY",
+        "wiring": "STAR",
+        "voltage": "AC230KV",
+        "tapChanger": "ONLOAD",
+        "ratings": [
+          {
+            "cooling": "ONAN",
+            "power": 120000,
+            "perModule": false
+          },
+          {
+            "cooling": "ONAF",
+            "power": 160000,
+            "perModule": false
+          },
+          {
+            "cooling": "ONAF",
+            "power": 200000,
+            "perModule": false
+          }
+        ]
+      },
+      "X": {
+        "windingSide": "SECONDARY",
+        "wiring": "STAR",
+        "voltage": "AC115KV",
+        "tapChanger": "NONE",
+        "ratings": [
+          {
+            "cooling": "ONAN",
+            "power": 120000,
+            "perModule": false
+          },
+          {
+            "cooling": "ONAF",
+            "power": 160000,
+            "perModule": false
+          },
+          {
+            "cooling": "ONAF",
+            "power": 200000,
+            "perModule": false
+          }
+        ]
+      },
+      "Y": {
+        "windingSide": "AUXILIARY",
+        "wiring": "DELTA",
+        "voltage": "AC22KV",
+        "tapChanger": "NONE",
+        "ratings": [
+          {
+            "cooling": "ONAN",
+            "power": 30000,
+            "perModule": false
+          },
+          {
+            "cooling": "ONAF",
+            "power": 40000,
+            "perModule": false
+          },
+          {
+            "cooling": "ONAF",
+            "power": 50000,
+            "perModule": false
+          }
+        ]
+      }
+    }
+  }
+}

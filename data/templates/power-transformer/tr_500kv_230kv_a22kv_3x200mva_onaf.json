@@ -1,0 +1,51 @@
+{
+  "id": "tr_500kv_230kv_a22kv_3x200mva_onaf",
+  "kind": "POWER_TRANSFORMER",
+  "description": "EGAT standard power transformer",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-11T03:58:55.234Z",
+  "data": {
+    "name": "TR_500KV_230KV_A22KV_3X200MVA_ONAF",
+    "modules": 3,
+    "windings": {
+      "H": {
+        "windingSide": "PRIMARY",
+        "wiring": "STAR",
+        "voltage": "AC500KV",
+        "tapChanger": "ONLOAD",
+        "ratings": [
+          {
+            "cooling": "ONAN",
+            "power": 120000,
+            "perModule": true
+          },
+          {
+            "cooling": "ONAF",
+            "power": 160000,
+            "perModule": true
+          },
+          {
+            "cooling": "ONAF",
+            "power": 200000,
+            "perModule": true
+          }
+        ]
+      },
+      "X": {
+        "windingSide": "SECONDARY",
+        "wiring": "STAR",
+        "voltage": "AC230KV",
+        "tapChanger": "NONE"
+      },
+      "Y": {
+        "windingSide": "AUXILIARY",
+        "wiring": "DELTA",
+        "voltage": "AC22KV",
+        "tapChanger": "NONE"
+      }
+    }
+  }
+}

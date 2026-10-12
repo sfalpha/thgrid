@@ -1,0 +1,292 @@
+{
+  "id": "egat_standard",
+  "name": "EGAT standard",
+  "description": "Standard conductors, line circuits, power transformers, yard and bay layouts used by EGAT.",
+  "tags": [
+    "EGAT"
+  ],
+  "items": [
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_477mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_477mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_477mcm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_795mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_795mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_795mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_1272mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_1272mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_1272mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x477mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x477mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x477mcm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x795mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x795mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x795mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x795mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x795mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x795mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_4x795mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_4x795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x1272mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x1272mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x1272mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x1272mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x1272mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x1272mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_4x1272mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_4x1272mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_4x1272mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_4x1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_1x795mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_1x795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_2x795mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_2x795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_4x795mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_4x795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_1x1272mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_1x1272mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_1x1272mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_1x1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_2x1272mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_2x1272mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_2x1272mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_2x1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_4x1272mcm_acsr_ga"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_4x1272mcm_acsr_aw"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_4x1272mcm_htls_invar"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_230kv_4x1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_500kv_4x1272mcm_acsr_ga"
+    },
+    {
+      "kind": "POWER_TRANSFORMER",
+      "id": "tr_230kv_115kv_a22kv_200mva_onaf"
+    },
+    {
+      "kind": "POWER_TRANSFORMER",
+      "id": "tr_500kv_230kv_a22kv_3x333mva_fa"
+    },
+    {
+      "kind": "POWER_TRANSFORMER",
+      "id": "tr_500kv_230kv_a22kv_3x200mva_onaf"
+    },
+    {
+      "kind": "POWER_TRANSFORMER",
+      "id": "tr_500kv_230kv_a24kv_3x333mva_fa"
+    },
+    {
+      "kind": "POWER_TRANSFORMER",
+      "id": "tr_500kv_230kv_a24kv_3x200mva_onaf"
+    },
+    {
+      "kind": "SUBSTATION_YARD",
+      "id": "yard_single_bus"
+    },
+    {
+      "kind": "SUBSTATION_YARD",
+      "id": "yard_single_main_and_transfer_bus"
+    },
+    {
+      "kind": "SUBSTATION_YARD",
+      "id": "yard_double_bus"
+    },
+    {
+      "kind": "SUBSTATION_YARD",
+      "id": "yard_double_main_and_transfer_bus"
+    },
+    {
+      "kind": "SUBSTATION_YARD",
+      "id": "yard_breaker_and_a_half"
+    },
+    {
+      "kind": "SUBSTATION_BAY",
+      "id": "bay_line_main_transfer"
+    },
+    {
+      "kind": "SUBSTATION_BAY",
+      "id": "bay_bus_tie_main_transfer"
+    },
+    {
+      "kind": "SUBSTATION_BAY",
+      "id": "bay_transformer_high_side_main_transfer"
+    },
+    {
+      "kind": "SUBSTATION_BAY",
+      "id": "bay_line_breaker_and_a_half"
+    },
+    {
+      "kind": "SUBSTATION_BAY",
+      "id": "bay_line_single_bus"
+    }
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-11T03:58:55.234Z"
+}

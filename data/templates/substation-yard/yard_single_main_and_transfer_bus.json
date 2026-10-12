@@ -1,0 +1,27 @@
+{
+  "id": "yard_single_main_and_transfer_bus",
+  "kind": "SUBSTATION_YARD",
+  "description": "EGAT standard substation yard",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-11T01:51:21.559Z",
+  "updatedAt": "2026-10-11T03:58:55.234Z",
+  "data": {
+    "name": "YARD_SINGLE_MAIN_AND_TRANSFER_BUS",
+    "arrangement": "SINGLE_MAIN_AND_TRANSFER_BUS",
+    "buses": [
+      {
+        "name": "MAIN_BUS_1",
+        "busType": "MAIN",
+        "busNumber": "1",
+        "row": 0
+      },
+      {
+        "name": "TRANSFER_BUS",
+        "busType": "TRANSFER",
+        "row": 9
+      }
+    ]
+  }
+}

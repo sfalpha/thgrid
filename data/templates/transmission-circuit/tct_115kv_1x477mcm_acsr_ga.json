@@ -1,0 +1,16 @@
+{
+  "id": "tct_115kv_1x477mcm_acsr_ga",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-08T17:15:36.541Z",
+  "data": {
+    "name": "TCT_115KV_1x477MCM_ACSR_GA",
+    "voltage": "AC115KV",
+    "bundle": 1,
+    "conductorId": "tc_477mcm_acsr_ga"
+  }
+}

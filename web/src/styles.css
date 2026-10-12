@@ -1,0 +1,1404 @@
+:root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --panel-2: #f0f2f5;
+    --border: #d9dde3;
+    --text: #1b1f24;
+    --muted: #5d6673;
+    --accent: #1f6feb;
+    --accent-text: #ffffff;
+    --danger: #c62828;
+    --danger-bg: #fdecea;
+    --warn-bg: #fff6e0;
+    --ok: #1b7f3b;
+    --ok-bg: #e7f6ec;
+    --code-bg: #eef1f5;
+    --radius: 6px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0f1216;
+        --panel: #171b21;
+        --panel-2: #1e242c;
+        --border: #2d343e;
+        --text: #e6e9ee;
+        --muted: #98a2b3;
+        --accent: #4c8dff;
+        --accent-text: #ffffff;
+        --danger: #ff6b6b;
+        --danger-bg: #3a1d1d;
+        --warn-bg: #3a3012;
+        --ok: #4cc26a;
+        --ok-bg: #16311f;
+        --code-bg: #10141a;
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body, #root {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    font-family: var(--font);
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg);
+}
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+code, .mono {
+    font-family: var(--mono);
+    font-size: 12.5px;
+}
+
+h1, h2, h3, h4 {
+    margin: 0 0 8px;
+    font-weight: 600;
+}
+
+h1 {
+    font-size: 18px;
+}
+
+h2 {
+    font-size: 16px;
+}
+
+h3 {
+    font-size: 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+p {
+    margin: 0 0 8px;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.small {
+    font-size: 12px;
+}
+
+/* ---------- layout ---------- */
+
+.app {
+    display: grid;
+    grid-template-rows: 48px 1fr;
+    height: 100%;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 0 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+}
+
+.topbar .brand {
+    font-weight: 700;
+    font-size: 15px;
+}
+
+.topbar nav {
+    display: flex;
+    gap: 4px;
+}
+
+.topbar nav a {
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    color: var(--text);
+}
+
+.topbar nav a.active {
+    background: var(--panel-2);
+    color: var(--accent);
+}
+
+.topbar .spacer {
+    flex: 1;
+}
+
+.workspace {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 0;
+}
+
+.sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.main {
+    overflow: auto;
+    padding: 20px 24px 60px;
+}
+
+.main.narrow > * {
+    max-width: 1100px;
+}
+
+@media (max-width: 800px) {
+    .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+    }
+
+    .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        max-height: 40vh;
+    }
+}
+
+/* ---------- sidebar lists ---------- */
+
+.kind-list, .item-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.kind-list a, .item-list a {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    color: var(--text);
+}
+
+.kind-list a:hover, .item-list a:hover {
+    background: var(--panel-2);
+    text-decoration: none;
+}
+
+.kind-list a.active, .item-list a.active {
+    background: var(--panel-2);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.count {
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0 6px;
+}
+
+.search {
+    width: 100%;
+}
+
+/* ---------- panels & forms ---------- */
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.panel-header h2 {
+    margin: 0;
+}
+
+.panel-header .spacer {
+    flex: 1;
+}
+
+.toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px 16px;
+}
+
+.form-grid .span-2 {
+    grid-column: span 2;
+}
+
+.form-grid .span-all {
+    grid-column: 1 / -1;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.field label {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.field .hint {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.field.invalid input, .field.invalid select, .field.invalid textarea {
+    border-color: var(--danger);
+}
+
+.field .error {
+    font-size: 12px;
+    color: var(--danger);
+}
+
+input, select, textarea, button {
+    font: inherit;
+    color: inherit;
+}
+
+input, select, textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    min-width: 0;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-color: var(--accent);
+}
+
+input[readonly] {
+    color: var(--muted);
+}
+
+textarea {
+    resize: vertical;
+}
+
+textarea.json {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    min-height: 320px;
+    white-space: pre;
+}
+
+button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    border-color: var(--accent);
+}
+
+button:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+button.primary {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+}
+
+button.danger {
+    color: var(--danger);
+}
+
+button.small {
+    padding: 2px 8px;
+    font-size: 12px;
+}
+
+/* ---------- tables ---------- */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+
+th {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+tr:hover td {
+    background: var(--panel-2);
+}
+
+td input, td select {
+    width: 100%;
+}
+
+/* ---------- windings ---------- */
+
+.winding {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 12px;
+    background: var(--panel-2);
+}
+
+.winding-header {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.winding-header .key {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 15px;
+}
+
+/* ---------- messages ---------- */
+
+.issues {
+    background: var(--danger-bg);
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 12px;
+}
+
+.issues ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
+.notice {
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+}
+
+.notice.ok {
+    background: var(--ok-bg);
+    color: var(--ok);
+}
+
+.notice.warn {
+    background: var(--warn-bg);
+}
+
+.notice.error {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    margin-right: 4px;
+}
+
+.badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--code-bg);
+    color: var(--muted);
+    font-family: var(--mono);
+}
+
+.empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--muted);
+}
+
+pre {
+    background: var(--code-bg);
+    border-radius: var(--radius);
+    padding: 12px;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.card {
+    display: block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    color: var(--text);
+}
+
+.card:hover {
+    border-color: var(--accent);
+    text-decoration: none;
+}
+
+.card h4 {
+    margin-bottom: 4px;
+}
+
+.kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 16px;
+}
+
+.kv dt {
+    color: var(--muted);
+}
+
+.kv dd {
+    margin: 0;
+}
+
+/* ---------- network editors ---------- */
+
+/* Toolbar, optional notice / versions / issues strips, then the view filling the rest. */
+.net-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.net-shell > :last-child {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.net-shell > .editor-layout {
+    height: auto;
+}
+
+.net-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+.net-toolbar .title {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.net-toolbar .tabs a {
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    color: var(--text);
+}
+
+.net-toolbar .tabs a.active {
+    background: var(--panel-2);
+    color: var(--accent);
+}
+
+.editor-layout {
+    display: grid;
+    grid-template-columns: 1fr 6px var(--side-w, 360px);
+    min-height: 0;
+    height: 100%;
+}
+
+.side-resizer {
+    cursor: col-resize;
+    background: var(--border);
+    transition: background .15s;
+}
+
+.side-resizer:hover {
+    background: var(--accent);
+}
+
+.editor-side {
+    background: var(--panel);
+    overflow: auto;
+    padding: 12px;
+    min-width: 0;
+}
+
+.editor-side .panel {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.editor-side table {
+    table-layout: auto;
+}
+
+.editor-side td, .editor-side th {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.editor-side .kv {
+    grid-template-columns: minmax(60px, max-content) minmax(0, 1fr);
+}
+
+.editor-side .kv dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.editor-side .toolbar {
+    flex-wrap: wrap;
+}
+
+.editor-side .badge {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.editor-side .panel {
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.editor-canvas {
+    position: relative;
+    min-height: 0;
+    overflow: auto;
+    background: var(--bg);
+}
+
+.editor-tools {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 500;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px;
+    max-width: calc(100% - 20px);
+}
+
+/* On the map the toolbar sits to the right of Leaflet's zoom control (top-left, ~34 px wide). */
+.editor-tools.map-tools {
+    left: 56px;
+    max-width: calc(100% - 236px);
+}
+
+.editor-tools button.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+}
+
+.editor-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 500;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+/* yard editor: the toolbar and the hint are in the flow of the scrolling canvas and stick to its top / bottom-left */
+.sld-canvas {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.sld-canvas .editor-tools {
+    position: sticky;
+    top: 10px;
+    left: 10px;
+    margin: 10px 10px 0;
+    width: fit-content;
+    max-width: calc(100% - 20px);
+}
+
+.sld-canvas .editor-hint {
+    position: sticky;
+    bottom: 10px;
+    left: 10px;
+    margin: 10px 10px 10px;
+    width: fit-content;
+    max-width: calc(100% - 20px);
+}
+
+.sld-canvas svg.sld {
+    flex: none;
+}
+
+@media (max-width: 900px) {
+    .editor-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto;
+    }
+
+    .side-resizer {
+        display: none;
+    }
+
+    .editor-side {
+        border-top: 1px solid var(--border);
+        max-height: 45vh;
+    }
+}
+
+/* map */
+.leaflet-map {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    background: #ddd;
+}
+
+.map-marker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.map-marker.site {
+    background: #1f6feb;
+}
+
+/* Site size classes (see siteSize in mapUtil.ts): the marker grows with the site. */
+.map-marker.site.size-small {
+    font-size: 10px;
+}
+
+.map-marker.site.size-medium {
+    font-size: 12px;
+}
+
+.map-marker.site.size-large {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.map-marker.site.size-xlarge {
+    font-size: 16px;
+    font-weight: 700;
+    border-width: 3px;
+}
+
+/* Zoomed out a site can be only a few px wide (MapEditor: size class × mapDetailScale): a thin rim keeps it blue. */
+.map-marker.site.tiny {
+    border-width: 1px;
+    box-shadow: 0 0 2px rgba(0, 0, 0, .5);
+}
+
+/* A circuit without a path attached at one end only (MapEditor): it cannot be drawn, this marks the end it has. */
+.map-circuit-alert {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border: 2px solid;
+    border-radius: 50%;
+    background: #fff4d6;
+    color: #9a6700;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+/* Junction (MapEditor): the area is a polygon behind the lines (pane "junctionAreas"); this invisible handle in its middle drags the
+   junction and shows its summary on hover. */
+.junction-hit {
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+}
+
+/* Map features panel (MapEditor): floating at the top right of the map. */
+.map-features {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 500;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px;
+    font-size: 12px;
+    max-width: 240px;
+}
+
+.map-features > button {
+    width: 100%;
+}
+
+.map-features ul {
+    list-style: none;
+    margin: 6px 2px 2px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.map-features label {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.map-marker.selected {
+    outline: 3px solid #ffd21f;
+}
+
+.map-marker.pick {
+    animation: pulse 1s infinite alternate;
+}
+
+@keyframes pulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.25); }
+}
+
+.map-label {
+    background: color-mix(in srgb, var(--panel) 75%, transparent);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+/* single-line diagram */
+.sld {
+    display: block;
+    font-family: var(--font);
+    user-select: none;
+}
+
+.sld .bay-col {
+    stroke: var(--border);
+    stroke-dasharray: 4 4;
+}
+
+/* row grid: fainter than the bay columns, numbered at the left margin */
+.sld .row-line {
+    stroke: var(--border);
+    stroke-opacity: 0.6;
+    stroke-dasharray: 3 5;
+    pointer-events: none;
+}
+
+.sld .row-label {
+    fill: var(--muted);
+    fill-opacity: 0.7;
+    font-size: 9px;
+    pointer-events: none;
+    user-select: none;
+}
+
+.sld .bay-label {
+    fill: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.sld .bus {
+    stroke: var(--vc, var(--text));
+    stroke-width: 5;
+    cursor: pointer;
+}
+
+.sld .bus.selected {
+    stroke: var(--accent);
+}
+
+.sld .bus-label {
+    fill: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.sld .sym {
+    stroke: var(--vc, var(--text));
+    stroke-width: 1.6;
+    fill: none;
+}
+
+.sld .sym.fill {
+    fill: var(--vc, var(--text));
+}
+
+.sld .sym-text {
+    fill: var(--text);
+    stroke: none;
+}
+
+.sld .equipment {
+    cursor: pointer;
+}
+
+.sld .equipment.selected .sym,
+.sld .takeoff.selected .sym {
+    stroke: var(--accent);
+}
+
+.sld .equipment.selected .sym.fill {
+    fill: var(--accent);
+}
+
+.sld .eq-label {
+    fill: var(--muted);
+    font-size: 11px;
+}
+
+.sld .terminal {
+    fill: var(--panel);
+    stroke: var(--vc, var(--muted));
+    stroke-width: 1.4;
+    cursor: crosshair;
+}
+
+/* a wired terminal is a solid dot in the colour of its node: the connection's voltage when set, else the terminal / bay / yard voltage */
+.sld .terminal.used {
+    fill: var(--vc, var(--ok));
+    stroke: var(--vc, var(--ok));
+}
+
+.sld .terminal.picked {
+    fill: var(--accent);
+    stroke: var(--accent);
+}
+
+.sld .terminal:hover {
+    stroke: var(--accent);
+    stroke-width: 2.5;
+}
+
+.sld .wire {
+    stroke: var(--vc, var(--ok));
+    stroke-width: 2;
+    fill: none;
+    cursor: pointer;
+}
+
+.sld .wire.selected {
+    stroke: var(--accent);
+    stroke-width: 3;
+}
+
+.sld .wire-hit {
+    stroke: transparent;
+    stroke-width: 12;
+    fill: none;
+    cursor: pointer;
+}
+
+.sld .takeoff {
+    cursor: pointer;
+}
+
+.sld .port .sym {
+    stroke-width: 2;
+}
+
+.sld .port.selected .sym {
+    stroke: var(--accent);
+}
+
+.sld .port.selected .port-box {
+    stroke: var(--accent);
+    stroke-width: 2;
+}
+
+.sld .port-box {
+    stroke: #fff;
+    stroke-width: 1;
+}
+
+.sld .port-label {
+    fill: #fff;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.sld .takeoff-label {
+    fill: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.sld .takeoff.linked .sym {
+    stroke-width: 2.6;
+}
+
+.sld .ghost {
+    stroke: var(--accent);
+    stroke-dasharray: 4 3;
+    stroke-width: 1.5;
+    fill: none;
+    pointer-events: none;
+}
+
+.kbd {
+    font-family: var(--mono);
+    font-size: 11px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    background: var(--panel-2);
+}
+
+.map-popup .leaflet-popup-content-wrapper {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+    font-size: 12px;
+}
+
+.map-popup .leaflet-popup-content {
+    margin: 8px 10px;
+    line-height: 1.4;
+}
+
+.map-popup .leaflet-popup-tip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+}
+
+.map-summary {
+    margin-top: 4px;
+    width: auto;
+}
+
+.map-summary th, .map-summary td {
+    padding: 2px 6px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.map-summary th {
+    color: var(--muted);
+}
+
+.map-summary tr:hover td {
+    background: transparent;
+}
+
+/* First line of a site label: code, yard symbols, generation icons and "(planned)", all centred on one line. */
+.map-label .map-site-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 700;
+    line-height: 14px;
+}
+
+/* Generation "G" and type badges, sized like the yard voltage symbols (.vsym). */
+.map-gen-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.map-gen-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    box-sizing: border-box;
+    min-width: 11px;
+    height: 11px;
+    padding: 0 1.5px;
+    border-radius: 2px;
+    color: #fff;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: -1px;
+}
+
+/* Yard voltage symbol (voltageSymbolShape): ▼ 69 kV, ▲ 115 kV, ■ 230 kV, hexagon 500 kV, ● other. */
+.vsym {
+    display: inline-block;
+    flex: none;
+    vertical-align: -1px;
+}
+
+/* A site's yards on its map label, highest voltage first: symbols after the code (compact), or one line per yard (Details). */
+.map-yard-symbols {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    vertical-align: -1px;
+}
+
+.map-yard-symbols .map-yard {
+    display: inline-flex;
+}
+
+.map-site-title {
+    font-size: 10px;
+}
+
+.map-yard-list {
+    margin-top: 2px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.map-yard-list .map-yard {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 14px;
+}
+
+.map-yard.planned {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.map-yard-badge {
+    display: block;
+    width: fit-content;
+    margin-top: 2px;
+    padding: 0 6px;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+    text-shadow: 0 0 2px rgba(0, 0, 0, .5);
+}
+
+.map-vertex {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #1b1f24;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .5);
+    cursor: move;
+    box-sizing: border-box;
+}
+
+.map-vertex.selected {
+    background: #ffd21f;
+    border-color: #7a5b00;
+    transform: scale(1.25);
+}
+
+.warn-dot {
+    color: #e8842b;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.find-results {
+    margin-top: 8px;
+    max-height: 40vh;
+    overflow: auto;
+}
+
+.find-row {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 4px 6px;
+    border-radius: var(--radius);
+    color: var(--text);
+    flex-wrap: wrap;
+}
+
+.find-row:hover {
+    background: var(--panel-2);
+    text-decoration: none;
+}
+
+.find-row .find-label {
+    font-weight: 600;
+}
+
+/* A yard row's voltage symbol: centred on the text like the map labels (an SVG would otherwise sit on the baseline). */
+.find-row > .vsym {
+    align-self: center;
+}
+
+.find-row .find-detail {
+    overflow-wrap: anywhere;
+}
+
+.field .with-action {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.field .with-action input {
+    flex: 1;
+    min-width: 0;
+}
+
+.find-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.find-item .tree-branch {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1;
+    flex: none;
+}
+
+.find-item > input[type="checkbox"] {
+    margin: 0 0 0 4px;
+    flex: none;
+}
+
+.find-item .find-row {
+    flex: 1;
+    min-width: 0;
+}
+
+.find-item .find-delete {
+    flex: none;
+    padding: 0 6px;
+    line-height: 18px;
+}
+
+.find-yards {
+    display: inline-flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.find-gen {
+    margin-top: 0;
+    align-self: center;
+}
+
+.find-nocheck {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    margin-left: 4px;
+    flex: none;
+}
+
+.find-pager {
+    margin-top: 6px;
+    justify-content: center;
+}
+
+.regen-box {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel-2);
+}
+
+.regen-list {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    max-height: 30vh;
+    overflow: auto;
+}
+
+.regen-list li {
+    margin-bottom: 2px;
+    overflow-wrap: anywhere;
+}
+
+.id-editor {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.id-editor .error {
+    color: var(--danger);
+}
+
+/* ---------- planned (not built yet): grey site markers and diagrams; yard symbols / circuits use a dull voltage colour (plannedVoltageColor) ---------- */
+
+.issues.warnings-only {
+    background: var(--warn-bg, color-mix(in srgb, #d29922 12%, transparent));
+    border-color: color-mix(in srgb, #d29922 45%, transparent);
+}
+
+.issues li.warning {
+    color: var(--muted);
+}
+
+.map-marker.site.planned {
+    background: #9aa4ad;
+    border-style: dashed;
+    opacity: .85;
+}
+
+.tag.planned {
+    border-style: dashed;
+    color: var(--muted);
+}
+
+.sld .takeoff.planned .sym,
+.sld .takeoff.planned .takeoff-label {
+    stroke-dasharray: 4 3;
+    opacity: .75;
+}
+
+.sld.planned {
+    opacity: .8;
+}
+
+/* ---------- overview tabs & find type chips ---------- */
+
+.panel-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    border-bottom: 1px solid var(--border);
+    margin: -4px 0 8px;
+}
+
+.panel-tabs button {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 6px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.panel-tabs button:hover:not(:disabled) {
+    color: var(--text);
+}
+
+.panel-tabs button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.find-kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.find-kinds .chip {
+    padding: 1px 8px;
+    font-size: 11px;
+    border-radius: 10px;
+    color: var(--muted);
+}
+
+.find-kinds .chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+}
+
+.find-kinds .chip.clear {
+    border-style: dashed;
+}
+
+/* A site extension listed in its parent's map label while grouped with it (zoomed out). */
+.map-label .map-site-name.map-site-ext {
+    font-size: 10px;
+    font-weight: 600;
+}

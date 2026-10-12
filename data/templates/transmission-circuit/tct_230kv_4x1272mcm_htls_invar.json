@@ -1,0 +1,16 @@
+{
+  "id": "tct_230kv_4x1272mcm_htls_invar",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-10T15:48:29.939Z",
+  "updatedAt": "2026-10-10T15:48:29.939Z",
+  "data": {
+    "name": "TCT_230KV_4x1272MCM_HTLS_INVAR",
+    "voltage": "AC230KV",
+    "bundle": 4,
+    "conductorId": "tc_1272mcm_htls_invar"
+  }
+}

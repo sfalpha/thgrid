@@ -1,0 +1,8 @@
+.codiumai
+node_modules
+dist
+web/dist
+yarn.lock
+*.tmp
+data/networks/
+.idea/db-forest-config.xml

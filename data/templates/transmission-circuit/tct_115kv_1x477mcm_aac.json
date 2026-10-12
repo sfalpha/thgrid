@@ -1,0 +1,16 @@
+{
+  "id": "tct_115kv_1x477mcm_aac",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-10T09:45:22.000Z",
+  "updatedAt": "2026-10-10T09:45:22.000Z",
+  "data": {
+    "name": "TCT_115KV_1x477MCM_AAC",
+    "voltage": "AC115KV",
+    "bundle": 1,
+    "conductorId": "tc_477mcm_aac"
+  }
+}

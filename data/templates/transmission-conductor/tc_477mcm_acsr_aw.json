@@ -1,0 +1,16 @@
+{
+  "id": "tc_477mcm_acsr_aw",
+  "kind": "TRANSMISSION_CONDUCTOR",
+  "description": "EGAT standard conductor",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-08T17:15:36.541Z",
+  "data": {
+    "name": "TC_477MCM_ACSR_AW",
+    "size": 477,
+    "unit": "MCM",
+    "type": "ACSR/AW"
+  }
+}

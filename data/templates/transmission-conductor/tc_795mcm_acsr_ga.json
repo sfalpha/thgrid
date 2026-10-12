@@ -1,0 +1,16 @@
+{
+  "id": "tc_795mcm_acsr_ga",
+  "kind": "TRANSMISSION_CONDUCTOR",
+  "description": "EGAT standard conductor",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-08T17:15:36.541Z",
+  "data": {
+    "name": "TC_795MCM_ACSR_GA",
+    "size": 795,
+    "unit": "MCM",
+    "type": "ACSR/GA"
+  }
+}

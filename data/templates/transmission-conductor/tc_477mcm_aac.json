@@ -1,0 +1,16 @@
+{
+  "id": "tc_477mcm_aac",
+  "kind": "TRANSMISSION_CONDUCTOR",
+  "description": "EGAT standard conductor",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-10T09:45:22.000Z",
+  "updatedAt": "2026-10-10T09:45:22.000Z",
+  "data": {
+    "name": "TC_477MCM_AAC",
+    "size": 477,
+    "unit": "MCM",
+    "type": "AAC"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "tct_230kv_2x1272mcm_acsr_aw",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-08T17:15:36.541Z",
+  "data": {
+    "name": "TCT_230KV_2x1272MCM_ACSR_AW",
+    "voltage": "AC230KV",
+    "bundle": 2,
+    "conductorId": "tc_1272mcm_acsr_aw"
+  }
+}

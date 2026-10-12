@@ -1,0 +1,16 @@
+{
+  "id": "tc_795mcm_htls_accc",
+  "kind": "TRANSMISSION_CONDUCTOR",
+  "description": "EGAT standard conductor",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-10T15:48:29.939Z",
+  "updatedAt": "2026-10-10T15:48:29.939Z",
+  "data": {
+    "name": "TC_795MCM_HTLS_ACCC",
+    "size": 795,
+    "unit": "MCM",
+    "type": "HTLS/ACCC"
+  }
+}

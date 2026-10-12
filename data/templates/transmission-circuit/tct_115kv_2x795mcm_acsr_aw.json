@@ -1,0 +1,16 @@
+{
+  "id": "tct_115kv_2x795mcm_acsr_aw",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-09T12:42:18.004Z",
+  "updatedAt": "2026-10-09T12:42:18.004Z",
+  "data": {
+    "name": "TCT_115KV_2x795MCM_ACSR_AW",
+    "voltage": "AC115KV",
+    "bundle": 2,
+    "conductorId": "tc_795mcm_acsr_aw"
+  }
+}

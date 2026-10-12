@@ -1,0 +1,51 @@
+{
+  "name": "thgrid",
+  "version": "1.0.0",
+  "description": "THGrid – crowd-sourced mapping of the Thailand transmission grid network: models, local backend and web editors",
+  "author": "Phattanon Duangdara <sfalpha@gmail.com>",
+  "license": "MIT",
+  "keywords": [
+    "thailand",
+    "transmission",
+    "grid",
+    "substation",
+    "gis",
+    "openstreetmap"
+  ],
+  "main": "dist/server/index.js",
+  "module": "commonjs",
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:web": "vite --config web/vite.config.mts",
+    "dev:host": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web:host\"",
+    "dev:web:host": "vite --config web/vite.config.mts --host :: --mode host",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.json",
+    "build:web": "vite build --config web/vite.config.mts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "start": "node dist/server/index.js",
+    "seed": "tsx scripts/seed.ts",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "leaflet": "^1.9.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.5.4",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/leaflet": "^1.9.22",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "tsx": "^4.23.15",
+    "vite": "^8.3.4"
+  }
+}

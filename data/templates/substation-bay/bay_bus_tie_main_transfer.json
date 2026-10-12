@@ -1,0 +1,33 @@
+{
+  "id": "bay_bus_tie_main_transfer",
+  "kind": "SUBSTATION_BAY",
+  "description": "EGAT standard substation bay",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-11T01:51:21.559Z",
+  "updatedAt": "2026-10-11T03:58:55.234Z",
+  "data": {
+    "name": "BAY_BUS_TIE_MAIN_TRANSFER",
+    "bayTemplateType": "BUS_TIE",
+    "arrangements": [
+      "SINGLE_MAIN_AND_TRANSFER_BUS",
+      "DOUBLE_MAIN_AND_TRANSFER_BUS"
+    ],
+    "equipments": [
+      {
+        "equipmentType": "DISCONNECTING_SWITCH",
+        "sequence": 1
+      },
+      {
+        "equipmentType": "CIRCUIT_BREAKER",
+        "sequence": 2
+      },
+      {
+        "equipmentType": "DISCONNECTING_SWITCH",
+        "sequence": 3,
+        "busTie": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "tct_115kv_4x1272mcm_acsr_aw",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-08T14:02:50.356Z",
+  "updatedAt": "2026-10-08T17:15:36.541Z",
+  "data": {
+    "name": "TCT_115KV_4x1272MCM_ACSR_AW",
+    "voltage": "AC115KV",
+    "bundle": 4,
+    "conductorId": "tc_1272mcm_acsr_aw"
+  }
+}

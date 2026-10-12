@@ -1,0 +1,28 @@
+{
+  "id": "yard_breaker_and_a_half",
+  "kind": "SUBSTATION_YARD",
+  "description": "EGAT standard substation yard",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-11T01:51:21.559Z",
+  "updatedAt": "2026-10-11T03:58:55.234Z",
+  "data": {
+    "name": "YARD_BREAKER_AND_A_HALF",
+    "arrangement": "BREAKER_AND_A_HALF",
+    "buses": [
+      {
+        "name": "MAIN_BUS_1",
+        "busType": "MAIN",
+        "busNumber": "1",
+        "row": 0
+      },
+      {
+        "name": "MAIN_BUS_2",
+        "busType": "MAIN",
+        "busNumber": "2",
+        "row": 12
+      }
+    ]
+  }
+}
