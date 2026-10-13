@@ -14,13 +14,16 @@
  *    the yards through the take-offs, joined section to section in a node of
  *    its own at every junction, and energized,
  *  - one line per circuit (`<kV>_<site>_<site>_L<n>`), its sections FROM → TO.
+ * The wizard refuses whatever would not be right and notes (blue) what is unusual but sound; it gives no warnings.
  * The line runs at the energized voltage given, else at the voltage its yards bring: a yard at or below the circuits'
- * rated voltage its own (a circuit rated above the yard runs below its rating, a note), one above it the rated voltage;
- * two yards that would bring different voltages are refused. With both ends at junctions nothing reaches it: it is
- * de-energized (0 V). The line, its sections (energized) and the junction nodes it creates take that voltage. Each yard
- * end takes its take-offs into the yard at that voltage: the one picked, else the site's yard at it (a note); below the
- * picked yard's voltage, with no such yard, their circuits are set to it (a secondary / auxiliary line, a warning); a
- * yard that cannot feed it is refused. Free take-offs are reused only when their circuit is at that voltage.
+ * rated voltage its own (a circuit rated above the yard runs below its rating: a note), one above it the rated voltage;
+ * it never runs above the rating nor at another current type, and two yards that would bring different voltages are
+ * refused. With both ends at junctions nothing reaches it: it is de-energized (0 V), and an energized voltage given
+ * there is refused. The line, its sections (energized) and the junction nodes it creates take that voltage. Each yard
+ * end takes its take-offs into the yard picked when it is at that voltage; a site with a yard at it where another was
+ * picked is refused (pick that one); below the picked yard's voltage, with no yard at it at the site, the take-offs'
+ * circuits are set to it (a secondary / auxiliary line: a note); a yard that cannot feed it is refused. Free take-offs
+ * are reused only when their circuit is at that voltage. Both ends in one site are refused.
  * Pure: works on a document and returns ops plus a summary for the preview.
  */
 import {energizedVsRated, TransmissionVoltage} from '@shared/models/transmission.voltage'
@@ -130,7 +133,7 @@ export interface NewLinePlan {
     freeTakeOffs: { from: SubstationTakeOffRecord[]; to: SubstationTakeOffRecord[] }
     /** Problems that make the plan invalid (empty ops then). */
     errors: string[]
-    /** Things worth a look that do not block. */
+    /** Things worth a look that do not block (the line wizard refuses or notes instead: always empty, kept for the panel). */
     warnings: string[]
     /** Worth knowing, nothing to fix (shown in blue): the voltage the line runs at and why, open ends. */
     notes: string[]
@@ -222,8 +225,13 @@ function shareLength(total: number | undefined, kms: (number | undefined)[]): (n
  */
 export function freeTakeOffsToward(doc: NetworkDocument, substationId: string, targetGroupId: string | undefined): SubstationTakeOffRecord[] {
     const target = targetGroupId ? doc.substationGroups.find(g => g.id === targetGroupId) : undefined
-    if (!target) return []
-    const code = target.groupName.replace(/[^A-Za-z0-9_]/g, ch => '\\' + ch)
+    return target ? freeTakeOffsTowardCode(doc, substationId, target.groupName) : []
+}
+
+/** Free take-offs of a yard whose line name points at `code` (a site code, or a line junction's name), lowest n first. */
+export function freeTakeOffsTowardCode(doc: NetworkDocument, substationId: string, targetCode: string | undefined): SubstationTakeOffRecord[] {
+    if (!targetCode) return []
+    const code = targetCode.replace(/[^A-Za-z0-9_]/g, ch => '\\' + ch)
     const re = new RegExp('^(?:[A-Z0-9]+_)?' + code + '_L(\\d+)$', 'i')
     const seq = (t: SubstationTakeOffRecord) => Number(re.exec(t.lineName)?.[1] ?? Infinity)
     return freeTakeOffs(doc, substationId).filter(t => re.test(t.lineName)).sort((a, b) => seq(a) - seq(b) || a.lineName.localeCompare(b.lineName))
@@ -312,6 +320,10 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
     /** What the yards bring. */
     const connected = fromNatural ?? toNatural
     const lineVoltage = spec.energizedVoltage ?? connected ?? TransmissionVoltage.DE_ENERGIZED   // energized: the line, its sections, the junction nodes, the paths it may share
+    // a line never runs above the rating of its conductor, nor at another current type
+    const rating = ratedVoltage ? energizedVsRated(ratedVoltage, lineVoltage) : 'unknown'
+    if (rating === 'higher') errors.push(`energized at ${lineVoltage}, above the conductor's rated ${ratedVoltage}: a line cannot run above the rating of its circuits`)
+    else if (rating === 'typeMismatch') errors.push(`energized at ${lineVoltage}, but the conductor is rated ${ratedVoltage}: AC and DC do not mix`)
     // each yard end takes its take-offs into the yard at that voltage: the one picked, else the site's yard at it; below the
     // picked yard's voltage, with no such yard, their circuits are set to it (a secondary / auxiliary line)
     const auxiliaryAt = new Map<string, TransmissionVoltage>()
@@ -321,12 +333,12 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
         const site = doc.substationGroups.find(g => g.id === yard.groupId)
         const atVoltage = doc.substations.find(y => y.groupId === yard.groupId && y.voltage === lineVoltage)
         if (atVoltage) {
-            notes.push(`${site?.groupName ?? ''} ${yard.yardName} is at ${yard.voltage}: the take-offs go into its ${lineVoltage} yard ${atVoltage.yardName}`)
-            return {...end, yard: atVoltage, ref: yardRef(atVoltage.id)}
+            errors.push(`${site?.groupName ?? ''} ${yard.yardName} is at ${yard.voltage}, the line runs at ${lineVoltage}: pick its ${lineVoltage} yard ${atVoltage.yardName}`)
+            return end
         }
         if (energizedVsRated(yard.voltage, lineVoltage) === 'lower') {
             auxiliaryAt.set(yard.id, lineVoltage)
-            warnings.push(`${refLabel(probe, end.ref)} is at ${yard.voltage} and ${site?.groupName ?? 'the site'} has no ${lineVoltage} yard: new take-offs there carry ${lineVoltage} on their circuit (a secondary / auxiliary line)`)
+            notes.push(`${refLabel(probe, end.ref)} is at ${yard.voltage} and ${site?.groupName ?? 'the site'} has no ${lineVoltage} yard: new take-offs there carry ${lineVoltage} on their circuit (a secondary / auxiliary line)`)
             return end
         }
         errors.push(`${refLabel(probe, end.ref)} is at ${yard.voltage}: it cannot feed a line energized at ${lineVoltage}`)
@@ -339,10 +351,12 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
     const fromYard = fromEnd?.yard, toYard = toEnd?.yard
     /** The voltage of the take-offs at a yard: the line's (the yard's, or an auxiliary line's). */
     const takeOffAt = (yard: SubstationRecord) => auxiliaryAt.get(yard.id) ?? yard.voltage
-    // Take-offs the yards already hold toward each other, no circuit uses, and at that voltage: offered instead of new ones.
+    // Take-offs the yards already hold toward each other (a site by its code, a line junction by its name), no circuit
+    // uses, and at that voltage: offered instead of new ones.
+    const codeOf = (end?: LineEnd) => end?.siteId ? doc.substationGroups.find(g => g.id === end.siteId)?.groupName : end?.junction ? end.junction.name ?? end.junction.id : undefined
     const free: NewLinePlan['freeTakeOffs'] = {
-        from: fromYard ? freeTakeOffsToward(doc, fromYard.id, toEnd?.siteId).filter(t => takeOffVoltage(doc, t.id) === takeOffAt(fromYard)) : [],
-        to: toYard ? freeTakeOffsToward(doc, toYard.id, fromEnd?.siteId).filter(t => takeOffVoltage(doc, t.id) === takeOffAt(toYard)) : [],
+        from: fromYard ? freeTakeOffsTowardCode(doc, fromYard.id, codeOf(toEnd)).filter(t => takeOffVoltage(doc, t.id) === takeOffAt(fromYard)) : [],
+        to: toYard ? freeTakeOffsTowardCode(doc, toYard.id, codeOf(fromEnd)).filter(t => takeOffVoltage(doc, t.id) === takeOffAt(toYard)) : [],
     }
     const stops = fromEnd && toEnd ? [fromEnd.ref, ...vias.map(junctionRef), toEnd.ref] : []
     const stopLabels = stops.map(s => refLabel(probe, s))
@@ -352,23 +366,27 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
 
     const voltage = ratedVoltage   // rated: the circuits
 
-    if (fromEnd.siteId && fromEnd.siteId === toEnd.siteId) warnings.push('both ends belong to the same site')
+    if (fromEnd.siteId && fromEnd.siteId === toEnd.siteId) {
+        errors.push('both ends belong to the same site: a line runs between two places')
+        return fail([])
+    }
     for (const end of [fromEnd, toEnd]) {
         if (!end.yard || (end === toEnd && fromEnd.yard?.id === end.yard.id)) continue
         const how = energizedVsRated(ratedVoltage, end.yard.voltage)
         if (how === 'lower' && !spec.energizedVoltage) notes.push(`the circuits are rated ${ratedVoltage}, ${refLabel(probe, end.ref)} is at ${end.yard.voltage}: they run at ${end.yard.voltage}`)
-        else if (how === 'typeMismatch') warnings.push(`the circuits are rated ${ratedVoltage}, but ${refLabel(probe, end.ref)} is at ${end.yard.voltage}: the current types differ (AC / DC)`)
     }
     for (const [end, side] of [[fromEnd, 'FROM'], [toEnd, 'TO']] as const) {
         if (end.junction) notes.push(`the line ${side === 'FROM' ? 'starts' : 'ends'} at ${refLabel(probe, end.ref)}: each circuit gets a node of its own there, open until the line is extended or tied in`)
     }
     if (!connected && !spec.energizedVoltage) notes.push('both ends are junctions, so no yard energizes it: the line is de-energized (0 V) until it is connected')
+    if (!connected && spec.energizedVoltage && spec.energizedVoltage !== TransmissionVoltage.DE_ENERGIZED) {
+        errors.push(`both ends are open at junctions, so nothing feeds it: it cannot be energized at ${spec.energizedVoltage} (leave the energized voltage empty: 0 V)`)
+        return fail([])
+    }
     if (spec.energizedVoltage) {
         const how = energizedVsRated(ratedVoltage, spec.energizedVoltage)
         if (how === 'lower') notes.push(`the sections are energized at ${spec.energizedVoltage}, below their rated ${ratedVoltage}`)
         else if (how === 'deEnergized') notes.push('the sections are de-energized (0 V)')
-        else if (how === 'higher') warnings.push(`the sections are energized at ${spec.energizedVoltage}, above their rated ${ratedVoltage}`)
-        else if (how === 'typeMismatch') warnings.push(`the sections are energized at ${spec.energizedVoltage}, but rated ${ratedVoltage}: the current types differ (AC / DC)`)
     }
 
     // 1. one path per leg: an existing one between the stops unless told otherwise, else a new one
@@ -387,7 +405,7 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
                 const chosen = doc.paths.find(p => p.id === choice.pathId)
                 const other = otherVoltage.find(o => o.path.id === choice.pathId)
                 if (!chosen) errors.push(`the chosen path for ${refLabel(probe, a)} → ${refLabel(probe, b)} no longer exists`)
-                else if (other) warnings.push(`path "${chosen.name}" carries ${other.voltages.join(' / ')} circuits: the new ${lineVoltage} sections will share its route`)
+                else if (other) notes.push(`path "${chosen.name}" carries ${other.voltages.join(' / ')} circuits: the new ${lineVoltage} sections will share its route`)
                 else if (!existing.some(p => p.id === chosen.id)) errors.push(`path "${chosen.name}" does not run between ${refLabel(probe, a)} and ${refLabel(probe, b)}`)
                 path = chosen
             } else if (existing.length) path = existing[0]
@@ -405,7 +423,7 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
             push({type: 'upsert', collection: 'paths', record: path})
         }
         const reversed = !created && sameRef(path.from, pb)
-        if (reversed) warnings.push(`the existing path "${path.name}" runs ${refLabel(probe, b)} ← ${refLabel(probe, a)}: the sections on it follow its direction`)
+        if (reversed) notes.push(`the existing path "${path.name}" runs ${refLabel(probe, b)} ← ${refLabel(probe, a)}: the sections on it follow its direction`)
         legs.push({from: a, to: b, path: {id: path.id, name: path.name, created}, existing, otherVoltage, needsDecision, reversed, km: legKm(probe, a, b)})
         legPaths.push(path)
     }

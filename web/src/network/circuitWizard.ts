@@ -5,10 +5,10 @@
  * toward the other end by the model rules); or it ends at the site's junction (created when the site has none). At a
  * junction it joins an existing node, or starts a node of its own: an open end, connected to nothing else yet. The
  * circuit runs on a path that already goes between the two places (the best one by default, following its direction when
- * it runs the other way) or on a new one. Any take-off voltage is accepted: the plan warns when the ends sit at different voltages, when
- * an end is open, when the energized voltage differs from an end, and when it is beyond the rating (above it, or at
- * another current type); running below the rating, and joining circuits that run at the same voltage at a node, are
- * notes. The circuit is energized at the voltage chosen, else at its connections' (the FROM end first; a node joined
+ * it runs the other way) or on a new one. Created by hand, anything goes: nothing is refused for its voltages, the plan
+ * warns on every mismatch instead (ends at different voltages, an end at another voltage than the circuit is energized
+ * at, energized above or below its rating or at another current type, an open end, both ends open yet energized);
+ * joining circuits that run at the same voltage at a node, and a de-energized circuit, are notes. The circuit is energized at the voltage chosen, else at its connections' (the FROM end first; a node joined
  * runs at the voltage of the circuits there), de-energized (0 V) when both ends are open; a new node is created at
  * that voltage.
  * Everything (site junctions, take-offs, path, circuit, connections) is one journaled batch.
@@ -96,8 +96,6 @@ export interface NewCircuitEndPlan {
     node?: ConnectionRecord
     /** Voltage of what the end connects to (take-off or yard, or what the circuits at the node joined run at); unknown for a node of its own. */
     voltage?: TransmissionVoltage
-    /** A new take-off whose circuit is set to another voltage than its yard's: a secondary / auxiliary line at the energized voltage. */
-    auxiliary?: TransmissionVoltage
     /** Ends in a node of its own at a junction: connected to nothing else. */
     open: boolean
     label: string
@@ -197,7 +195,7 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
 
     // 1. the ends: the place, and the take-off or junction (node) the end connects to; take-offs and site junctions
     // the plan creates are added to the probe right away, so the other end and the naming see them
-    /** The energized voltage asked for (0 V suits any end), which ends must suit. */
+    /** The energized voltage asked for (not 0 V): the default yard is the one at it. */
     const asked = spec.energizedVoltage && spec.energizedVoltage !== TransmissionVoltage.DE_ENERGIZED ? spec.energizedVoltage : undefined
     const resolve = (end: NewCircuitEndSpec, other: NewCircuitEndSpec, side: 'FROM' | 'TO'): NewCircuitEndPlan => {
         const out: NewCircuitEndPlan = {takeOffCreated: false, junctionCreated: false, open: false, label: '–'}
@@ -232,15 +230,8 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
                     errors.push(`yard ${connect.yardId} is not a yard of ${site.groupName}`)
                     return out
                 }
-                // the take-off carries the energized voltage asked for: its yard's, or below it as a secondary / auxiliary
-                // line when the site has no yard at that voltage
-                let carried = yard.voltage
-                if (asked && asked !== yard.voltage) {
-                    const atAsked = yardsOf(doc, site.id).find(y => y.voltage === asked)
-                    if (atAsked) errors.push(`${site.groupName} has a ${asked} yard (${atAsked.yardName}): new take-offs for a circuit energized at ${asked} go there`)
-                    else if (energizedVsRated(yard.voltage, asked) === 'lower') carried = asked
-                    else errors.push(`${site.groupName} ${yard.yardName} is at ${yard.voltage}: it cannot feed a circuit energized at ${asked}`)
-                }
+                // made by hand: the take-off goes where it was picked, at its yard's voltage (a mismatch is warned below)
+                const carried = yard.voltage
                 const lineName = connect.lineName?.trim()
                 let t: SubstationTakeOffRecord
                 if (lineName) {
@@ -253,8 +244,7 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
                     t = newTakeOffToward(probe, yard.id, target ? (target.kind === 'G' ? siteRef(target.id) : junctionRef(target.id)) : undefined, carried)
                 }
                 push({type: 'upsert', collection: 'takeOffs', record: t})
-                Object.assign(out, {takeOff: t, takeOffCreated: true, yard, voltage: carried, auxiliary: carried !== yard.voltage ? carried : undefined,
-                    label: `${site.groupName} ${yard.yardName} · new take-off ${t.lineName}${carried !== yard.voltage ? ` at ${carried}` : ''}`})
+                Object.assign(out, {takeOff: t, takeOffCreated: true, yard, voltage: carried, label: `${site.groupName} ${yard.yardName} · new take-off ${t.lineName}`})
                 return out
             }
             // the site junction, created when the site has none
@@ -326,15 +316,14 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
     plan.autoEnergized = first.voltage ?? second.voltage ?? (first.open && second.open ? TransmissionVoltage.DE_ENERGIZED : spec.voltage)
     const energized = spec.energizedVoltage ?? plan.autoEnergized
     const nodeVoltage = energized ?? spec.voltage
-    // an end may join only what runs at that voltage (a de-energized circuit may join anything)
+    // an end at another voltage than the circuit runs at: allowed by hand, warned (a de-energized circuit may join anything)
     if (energized && energized !== TransmissionVoltage.DE_ENERGIZED) {
         for (const [end, side] of [[from, 'FROM'], [to, 'TO']] as const) {
             if (!end.voltage || end.voltage === energized) continue
-            errors.push(end.takeOff && !end.takeOffCreated ? `the ${side} end: take-off ${end.takeOff.lineName} is at ${end.voltage}; a circuit energized at ${energized} cannot take it (pick one at ${energized})`
-                : end.node ? `the ${side} end: node ${end.node.name ?? end.node.id} runs at ${end.voltage}; a circuit energized at ${energized} cannot join it`
-                    : `the ${side} end: ${end.label} is at ${end.voltage}; a circuit energized at ${energized} cannot be connected there`)
+            warnings.push(end.takeOff && !end.takeOffCreated ? `the ${side} end: take-off ${end.takeOff.lineName} is at ${end.voltage}, the circuit is energized at ${energized}`
+                : end.node ? `the ${side} end: node ${end.node.name ?? end.node.id} runs at ${end.voltage}, the circuit is energized at ${energized}`
+                    : `the ${side} end: ${end.label} is at ${end.voltage}, the circuit is energized at ${energized}`)
         }
-        if (errors.length) return plan
     }
     const autoCircuit = circuitNaming(probe, {pathId: path.id, voltage: spec.voltage, from: first.ref, to: second.ref})
     plan.autoCircuit = autoCircuit
@@ -346,7 +335,7 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
     // attach both ends (the circuit is added last: the helpers' energize ops are not needed, the voltage is set above)
     const attach = (end: NewCircuitEndPlan, endSpec: NewCircuitEndSpec, circuitEnd: CircuitEnd) => {
         const opts = {newId: endSpec.connectionId?.trim() || undefined, newName: endSpec.connectionName?.trim() || undefined}
-        const next = end.takeOff ? attachCircuitEndToTakeOffOps(probe, circuit.id, circuitEnd, end.takeOff.id, {...opts, voltage: end.auxiliary})
+        const next = end.takeOff ? attachCircuitEndToTakeOffOps(probe, circuit.id, circuitEnd, end.takeOff.id, opts)
             : attachCircuitEndToJunctionOps(probe, circuit.id, circuitEnd, end.junction!.id, nodeVoltage, end.node ? {connectionId: end.node.id} : {forceNew: true, ...opts})
         push(...next.filter(o => !(o.type === 'upsert' && o.collection === 'circuits')))
     }
@@ -358,7 +347,6 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
 
     // 4. what is worth a look
     if (from.site && from.site.id === to.site?.id) warnings.push('both ends belong to the same site')
-    for (const end of [from, to]) if (end.auxiliary) warnings.push(`${end.label}: its circuit is set to ${end.auxiliary}, below the yard's ${end.yard?.voltage} (a secondary / auxiliary line)`)
     for (const [end, side] of [[from, 'FROM'], [to, 'TO']] as const) {
         if (end.open) warnings.push(`the ${side} end is open: a node of its own at ${end.junction?.name ?? end.junction?.id}, connected to nothing else (pick a node to join, or join it later from the junction panel)`)
     }
@@ -367,10 +355,13 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
         if (joined.length && end.voltage === energized) notes.push(`the ${side} end joins ${joined.map(c => c.name).join(', ')} at node ${end.node!.name ?? end.node!.id}, all at ${energized}`)
     }
     const rating = energizedVsRated(spec.voltage, energized)
-    if (rating === 'lower') notes.push(`energized at ${energized}, below its rated ${spec.voltage}: drawn with a dotted overlay in the rated colour`)
+    if (rating === 'lower') warnings.push(`energized at ${energized}, below its rated ${spec.voltage}: drawn with a dotted overlay in the rated colour`)
     else if (rating === 'deEnergized') notes.push(first.open && second.open && !spec.energizedVoltage ? 'both ends are open: the circuit is de-energized (0 V) until it is connected' : 'de-energized (0 V)')
     else if (rating === 'higher') warnings.push(`energized at ${energized}, above its rated ${spec.voltage}`)
-    else if (rating === 'typeMismatch') warnings.push(`energized at ${energized}, but rated ${spec.voltage}: the current types differ (AC / DC)`)
+    else if (rating === 'typeMismatch') warnings.push(`energized at ${energized}, but rated ${spec.voltage}: AC and DC do not mix`)
+    if (from.open && to.open && spec.energizedVoltage && spec.energizedVoltage !== TransmissionVoltage.DE_ENERGIZED) {
+        warnings.push(`both ends are open, yet it is energized at ${spec.energizedVoltage}: nothing feeds it (empty, it would be de-energized, 0 V)`)
+    }
     if (!spec.voltage) warnings.push('no rated voltage: pick one, or a circuit template')
     if (errors.length) plan.ops = []
     return plan
