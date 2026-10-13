@@ -5,7 +5,7 @@ import {duplicatePathGroups} from './mergePaths'
 import {buildCircuitGraph, lineWarnings} from '@shared/network/lines'
 import type {RegenerateTarget} from '@shared/network/naming'
 import {RegenerateBox, targetKey} from './RegenerateBox'
-import {voltageColor, voltageKv} from './mapUtil'
+import {capacityText, generationUnitsOf, voltageColor, voltageKv} from './mapUtil'
 import {VoltageSymbol} from './symbols'
 import {cascadeDeleteOps, NetworkOp} from '@shared/network/ops'
 import type {NetworkCollectionName} from '@shared/network/records'
@@ -76,10 +76,11 @@ export function FindPanel({locate, autoFocus, fixedKind, embedded}: { locate?: (
         const out: Row[] = []
         for (const g of doc.substationGroups) {
             const yards = doc.substations.filter(s => s.groupId === g.id)
+            const units = generationUnitsOf(doc, g.id)
             const byVoltage = [...yards].sort((a, b) => voltageKv(b.voltage) - voltageKv(a.voltage) || a.yardName.localeCompare(b.yardName))
             out.push({
                 sel: {collection: 'substationGroups', id: g.id}, kind: 'sites', label: g.groupName, planned: g.planned,
-                detail: g.name !== g.groupName ? g.name : undefined,
+                detail: [g.name !== g.groupName ? g.name : '', g.generation && units.length ? `${units.length} unit${units.length === 1 ? '' : 's'}, ${capacityText(units)}` : ''].filter(Boolean).join(' · ') || undefined,
                 yards: byVoltage.map(y => ({name: y.yardName, voltage: y.voltage, planned: y.planned || g.planned})), generation: g.generation ? (g.generationTypes ?? []) : undefined,
                 warn: yards.length ? undefined : 'no yards', target: {collection: 'substationGroups', id: g.id},
                 del: {collection: 'substationGroups', id: g.id, confirm: `Delete site ${g.groupName} with its ${yards.length} yard(s), everything in them and its site junction? Paths ending there lose that end.`},

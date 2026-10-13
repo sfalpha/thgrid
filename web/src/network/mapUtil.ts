@@ -1,7 +1,7 @@
 /** Map helpers shared by the Leaflet editor and its side panels (no Leaflet dependency). */
 import {atPathEnd, junctionRef} from '@shared/network/refs'
 import type {CoordinatesProps} from '@shared/models/coordinates'
-import {CircuitEnd, ConnectionJunctionKind, ConnectionJunctionRef, ConnectionScope, NetworkDocument, NetworkNodeKind} from '@shared/network/records'
+import {CircuitEnd, ConnectionJunctionKind, ConnectionJunctionRef, ConnectionScope, GenerationUnitRecord, NetworkDocument, NetworkNodeKind} from '@shared/network/records'
 
 export type Mode = 'select' | 'addSite' | 'addJunction' | 'addPath' | 'addCircuit' | 'addLine' | 'editWaypoints' | 'splitPath'
 
@@ -314,4 +314,21 @@ export function haversineKm(a: CoordinatesProps, b: CoordinatesProps): number {
     const dLon = (b.longitude - a.longitude) * Math.PI / 180
     const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * Math.PI / 180) * Math.cos(b.latitude * Math.PI / 180) * Math.sin(dLon / 2) ** 2
     return 2 * R * Math.asin(Math.sqrt(s))
+}
+
+/** The generating units of a site, by name (numbers compared as numbers: Block 2 before Block 10). */
+export function generationUnitsOf(doc: NetworkDocument, groupId: string): GenerationUnitRecord[] {
+    return (doc.generationUnits ?? []).filter(u => u.groupId === groupId).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}))
+}
+
+/** Megawatts as text: `1,400 MW`, `12.5 MW`. */
+export const mwText = (mw: number) => `${mw.toLocaleString('en-US', {maximumFractionDigits: 1})} MW`
+
+/** Installed capacity of some units: `1,400 MW + 300 MW planned`, noting the units whose capacity is not known; empty without units. */
+export function capacityText(units: GenerationUnitRecord[]): string {
+    const sum = (list: GenerationUnitRecord[]) => list.reduce((s, u) => s + (u.capacityMw ?? 0), 0)
+    const built = units.filter(u => !u.planned), planned = units.filter(u => u.planned)
+    const unknown = units.filter(u => u.capacityMw === undefined).length
+    return [built.length ? mwText(sum(built)) : '', planned.length ? `${built.length ? '+ ' : ''}${mwText(sum(planned))} planned` : '', unknown ? `(${unknown} without capacity)` : '']
+        .filter(Boolean).join(' ')
 }

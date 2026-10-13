@@ -80,6 +80,11 @@ export function migrateNetworkDocument(input: NetworkDocument): MigrationResult 
         doc = {...doc, yardConnections: []}
         changes.push('added empty "yardConnections" collection')
     }
+    // v7 → generation sites list their generating units in their own collection.
+    if (!Array.isArray(doc.generationUnits)) {
+        doc = {...doc, generationUnits: []}
+        changes.push('added empty "generationUnits" collection')
+    }
     // v6 → transformers carry their windings (side, wiring, tap changer, voltage, ratings); older records only had terminals.
     const SIDES: Record<string, TransformerWindingSide> = {PRIMARY: TransformerWindingSide.PRIMARY, SECONDARY: TransformerWindingSide.SECONDARY, AUXILIARY: TransformerWindingSide.AUXILIARY}
     const unwound = (doc.equipments ?? []).filter(e => isTransformerType(e.equipmentType) && !e.windings && Array.isArray(e.terminals) && e.terminals.length)

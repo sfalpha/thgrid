@@ -53,6 +53,21 @@ export interface SubstationGroupRecord extends NetworkRecordBase {
     extensionOf?: string
 }
 
+/**
+ * A generating unit of a generation site (see `GenerationUnit`): a block of a power plant, a section of a solar or
+ * wind farm, a battery system. The site should be flagged `generation` and list the unit's type among its
+ * `generationTypes` (warnings otherwise).
+ */
+export interface GenerationUnitRecord extends NetworkRecordBase {
+    /** The site the unit belongs to. */
+    groupId: string
+    /** Commonly the block name, e.g. "Block 1", "GT11", "Unit 3". */
+    name: string
+    generationType: GenerationType
+    /** Installed (nameplate) capacity in MW; unset while unknown. */
+    capacityMw?: number
+}
+
 /** A voltage yard of a site, e.g. "230KV". Owns buses, bays, equipment and take-offs. */
 export interface SubstationRecord extends NetworkRecordBase {
     groupId: string
@@ -309,6 +324,7 @@ export const NETWORK_DOCUMENT_VERSION = 1
 
 export interface NetworkCollections {
     substationGroups: SubstationGroupRecord[]
+    generationUnits: GenerationUnitRecord[]
     substations: SubstationRecord[]
     buses: SubstationBusRecord[]
     bays: SubstationBayRecord[]
@@ -327,7 +343,7 @@ export type NetworkRecordOf<C extends NetworkCollectionName> = NetworkCollection
 export type AnyNetworkRecord = NetworkRecordOf<NetworkCollectionName>
 
 export const networkCollectionNames: NetworkCollectionName[] = [
-    'substationGroups', 'substations', 'buses', 'bays', 'equipments', 'takeOffs',
+    'substationGroups', 'generationUnits', 'substations', 'buses', 'bays', 'equipments', 'takeOffs',
     'junctions', 'paths', 'circuits', 'lines', 'connections', 'yardConnections',
 ]
 
@@ -361,7 +377,7 @@ export interface NetworkSummary {
 
 export function emptyNetworkCollections(): NetworkCollections {
     return {
-        substationGroups: [], substations: [], buses: [], bays: [], equipments: [],
+        substationGroups: [], generationUnits: [], substations: [], buses: [], bays: [], equipments: [],
         takeOffs: [], junctions: [], paths: [], circuits: [], lines: [], connections: [], yardConnections: [],
     }
 }

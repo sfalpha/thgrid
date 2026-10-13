@@ -48,7 +48,8 @@ export class NetworkOpError extends Error {
 
 function cloneDoc(doc: NetworkDocument): NetworkDocument {
     const copy = {...doc}
-    for (const c of networkCollectionNames) (copy as any)[c] = [...doc[c]]
+    // a collection added after the document was loaded (an editor session across an upgrade) starts empty
+    for (const c of networkCollectionNames) (copy as any)[c] = [...(doc[c] ?? [])]
     return copy
 }
 
@@ -138,6 +139,7 @@ export function cascadeDeleteOps(doc: NetworkDocument, collection: NetworkCollec
                 const {extensionOf: _, ...rest} = g
                 ops.push({type: 'upsert', collection: 'substationGroups', record: rest})
             }
+            for (const u of (doc.generationUnits ?? []).filter(u => u.groupId === id)) del('generationUnits', u.id)
             for (const s of doc.substations.filter(s => s.groupId === id)) ops.push(...cascadeDeleteOps(doc, 'substations', s.id))
             for (const j of doc.junctions.filter(j => j.groupId === id)) ops.push(...cascadeDeleteOps(doc, 'junctions', j.id))
             break
@@ -194,6 +196,7 @@ export function cascadeDeleteOps(doc: NetworkDocument, collection: NetworkCollec
             break
         case 'connections':
         case 'yardConnections':
+        case 'generationUnits':
             break
     }
     del(collection, id)
@@ -219,7 +222,7 @@ export function emptyLinesOps(doc: NetworkDocument): NetworkOp[] {
 
 /** True when some record of any collection already uses the id. */
 export function idInUse(doc: NetworkDocument, id: string): boolean {
-    for (const c of networkCollectionNames) if ((doc[c] as AnyNetworkRecord[]).some(r => r.id === id)) return true
+    for (const c of networkCollectionNames) if (((doc[c] ?? []) as AnyNetworkRecord[]).some(r => r.id === id)) return true
     return false
 }
 
@@ -262,6 +265,7 @@ export function renameRecordOps(doc: NetworkDocument, collection: NetworkCollect
     switch (collection) {
         case 'substationGroups':
             for (const s of doc.substations) if (s.groupId === oldId) up('substations', {...s, groupId: newId})
+            for (const u of doc.generationUnits ?? []) if (u.groupId === oldId) up('generationUnits', {...u, groupId: newId})
             for (const j of doc.junctions) if (j.groupId === oldId) up('junctions', {...j, groupId: newId})
             for (const p of doc.paths) if (p.from?.id === oldId || p.to?.id === oldId) up('paths', {...p, from: swapRef(p.from), to: swapRef(p.to)})
             for (const g of doc.substationGroups) if (g.extensionOf === oldId && g.id !== oldId) up('substationGroups', {...g, extensionOf: newId})
@@ -308,6 +312,7 @@ export function renameRecordOps(doc: NetworkDocument, collection: NetworkCollect
         case 'lines':
         case 'connections':
         case 'yardConnections':
+        case 'generationUnits':
             break
     }
     ops.push({type: 'delete', collection, id: oldId})
@@ -317,7 +322,7 @@ export function renameRecordOps(doc: NetworkDocument, collection: NetworkCollect
 /** Generates an id unique within the document: `<prefix>` or `<prefix>_<n>`. */
 export function uniqueId(doc: NetworkDocument, prefix: string): string {
     const used = new Set<string>()
-    for (const c of networkCollectionNames) for (const r of doc[c]) used.add(r.id)
+    for (const c of networkCollectionNames) for (const r of doc[c] ?? []) used.add(r.id)
     const base = prefix.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^[_.-]+/, '') || 'item'
     if (!used.has(base)) return base
     for (let n = 2; ; n++) {

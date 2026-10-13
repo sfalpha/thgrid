@@ -2,6 +2,7 @@ import {SubstationUnit, SubstationUnitNamingHints, SubstationUnitProps} from "./
 import {Substation} from "./substation";
 import {joinId} from "./naming";
 import {GenerationType} from "./generation";
+import {GenerationUnit} from "./generation.unit";
 
 export interface SubstationGroupProps extends SubstationUnitProps {
     id?: string
@@ -12,6 +13,8 @@ export interface SubstationGroupProps extends SubstationUnitProps {
     generation?: boolean
     /** Kinds of generation at the site (meaningful when `generation` is set). */
     generationTypes?: GenerationType[]
+    /** The generating units of a generation site (blocks, farm sections, battery systems). */
+    generationUnits?: GenerationUnit[]
 }
 
 export interface SubstationGroupNamingHints extends SubstationUnitNamingHints {
@@ -35,6 +38,7 @@ export class SubstationGroup extends SubstationUnit {
     public substations: Substation[]
     public generation: boolean
     public generationTypes: GenerationType[]
+    public generationUnits: GenerationUnit[]
 
     public constructor(props: SubstationGroupProps) {
         const hints: SubstationGroupNamingHints = {name: props.name, groupName: props.groupName}
@@ -42,5 +46,6 @@ export class SubstationGroup extends SubstationUnit {
         this.substations = props?.substations || []
         this.generation = props?.generation ?? false
         this.generationTypes = props?.generationTypes || []
+        this.generationUnits = props?.generationUnits || []
     }
 }

@@ -336,8 +336,10 @@ immediately.
   lettered badge per generation type follows it (H hydro, S solar, B BESS,
   W wind, GT gas turbine, CC combined cycle, T thermal, GE geothermal;
   colours in `GENERATION_BADGES`). Everything on that line (code, symbols,
-  badges, "(planned)") is centred on one line. The popup names the types,
-  and the *Sites* list shows the G and type badges at the same size. Sites are sized
+  badges, "(planned)") is centred on one line. The popup names the types
+  and the number of generation units with their installed capacity
+  (`capacityText`: `1,400 MW + 300 MW planned`), and the *Sites* list shows
+  the G and type badges at the same size and the same capacity in its detail. Sites are sized
   by what is inside them (`siteSize` in `mapUtil.ts`: more than 6 / 12 / 24
   take-offs or more than 4 / 8 / 16 bays make a site medium / large /
   x-large, else small) and the marker grows with the class: 14 / 18 / 24 / 30 px
@@ -842,7 +844,18 @@ immediately.
   voltage; the node at a junction; at a site, also its site junction,
   `SiteJunctionAttach`: one of its nodes or a new node, or, when the site has
   no junction yet, **+ junction & node** creating both in one step), site (code, name, coordinates, yards with "open editor", add yard,
-  add take-off, an *Extensions* card (`SiteExtensionsPanel`: an extension shows
+  add take-off, the *Generation site* checkbox with its types (ticked again,
+  a site that lists none takes its units' types), a *Generation units* card
+  for a generation site (`GenerationUnitsPanel`, collection `generationUnits`;
+  also shown, with a warning, for a site that still has units but is no
+  generation site): one row per unit, by name, edited in place (name, commonly
+  the block name; generation type, the site's types first; capacity in MW;
+  *planned*; Apply / Reset while edited, × to delete), the installed capacity
+  in total in its header, and *Add a unit* (name, empty for the next free
+  `Block <n>`; type, preset to the last unit's or the site's first; MW;
+  planned, forced on a planned site) with id `SGU_<site>_<name>`
+  (`generationUnitNaming`); a unit of a type the site does not list adds it
+  to the site, flagging it a generation site, in the same step), an *Extensions* card (`SiteExtensionsPanel`: an extension shows
   the site it extends with **Unlink**; a site of its own picks the site it
   extends, nearest first, with **Link**, or one click on **Link to …** when
   its code points at a site within 10 km, `suggestedParentSite`: `BPK_T` →

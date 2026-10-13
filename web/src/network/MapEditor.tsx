@@ -16,7 +16,7 @@ import {useNetworkEditor} from './NetworkContext'
 import {useSideWidth} from '../hooks/useSideWidth'
 import {MapPanels} from './MapPanels'
 import {JunctionArrival, JunctionDrawing, layoutJunction, trimStartAtCircle} from './junctionLayout'
-import {CircuitDraft, CreateDraft, dropDraftEnd, EMPTY_CIRCUIT_DRAFT, EMPTY_LINE_DRAFT, EMPTY_PATH_DRAFT, endLocation, LineDraft, lineDraftJunctionClick, lineDraftPlaces, lineDraftRemove, lineDraftSiteClick, PathDraft, pickDraftEnd, JUNCTION_COLOR, JUNCTION_FILL_OPACITY, junctionSize, locationOfRef, Mode, plannedVoltageColor, mapDetailScale, SITE_MARKER_MIN_PX, SITE_MARKER_PX, SITE_SIZE_RANK, siteSize, voltageColor, voltageKv, voltageSymbolSvg, WaypointEdit} from './mapUtil'
+import {capacityText, CircuitDraft, CreateDraft, dropDraftEnd, EMPTY_CIRCUIT_DRAFT, EMPTY_LINE_DRAFT, EMPTY_PATH_DRAFT, endLocation, generationUnitsOf, LineDraft, lineDraftJunctionClick, lineDraftPlaces, lineDraftRemove, lineDraftSiteClick, PathDraft, pickDraftEnd, JUNCTION_COLOR, JUNCTION_FILL_OPACITY, junctionSize, locationOfRef, Mode, plannedVoltageColor, mapDetailScale, SITE_MARKER_MIN_PX, SITE_MARKER_PX, SITE_SIZE_RANK, siteSize, voltageColor, voltageKv, voltageSymbolSvg, WaypointEdit} from './mapUtil'
 import type {Selection} from './NetworkContext'
 import type {MetaResponse} from '../api/client'
 import {yardNameForVoltage} from '@shared/models/naming'
@@ -1180,7 +1180,9 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             const siteJunction = doc.junctions.find(j => j.groupId === g.id)
             const junctionNodes = siteJunction ? doc.connections.filter(c => c.junction.kind === 'TRANSMISSION_JUNCTION' && c.junction.id === siteJunction.id).length : 0
             const junctionNote = siteJunction ? `<div class="muted">junction <b>${esc(siteJunction.name ?? siteJunction.id)}</b> · ${junctionNodes} node${junctionNodes === 1 ? '' : 's'}</div>` : ''
-            const genNote = g.generation ? `<div><span style="color:${GENERATION_SITE_COLOR};font-weight:700">G</span> generation site${(g.generationTypes ?? []).length ? `: ${(g.generationTypes ?? []).map(t => esc(GENERATION_LABELS[t] ?? t)).join(', ')}` : ''}</div>` : ''
+            const genUnits = generationUnitsOf(doc, g.id)
+            const genNote = g.generation ? `<div><span style="color:${GENERATION_SITE_COLOR};font-weight:700">G</span> generation site${(g.generationTypes ?? []).length ? `: ${(g.generationTypes ?? []).map(t => esc(GENERATION_LABELS[t] ?? t)).join(', ')}` : ''}</div>`
+                + (genUnits.length ? `<div class="muted">${genUnits.length} unit${genUnits.length === 1 ? '' : 's'} · <b>${esc(capacityText(genUnits))}</b></div>` : '') : ''
             const parentSite = g.extensionOf ? doc.substationGroups.find(x => x.id === g.extensionOf) : undefined
             const extensions = extensionsOf(doc, g.id)
             const extensionNote = (parentSite ? `<div class="muted">extension of <b>${esc(parentSite.groupName)}</b></div>` : '')

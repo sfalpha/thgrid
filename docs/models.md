@@ -63,7 +63,8 @@ These already existed and are unchanged. Summary for orientation:
 
 ```
 SubstationUnit (id, name, coords)
-├── SubstationGroup            substations[]
+├── SubstationGroup            substations[], generation, generationTypes[], generationUnits[]
+├── GenerationUnit             generationType, capacityMw (a block of a power plant, a farm section, a battery system)
 ├── Substation                 substationGroup, voltage, arrangement, buses[], bays[], takeOffs[], equipments[]
 ├── SubstationCircuit          current, voltage
 │   └── SubstationBay          substation, bayNumber, column
@@ -101,6 +102,7 @@ sanitises tokens to `[A-Za-z0-9_.-]`).
 | Class | Prefix | Default id | Default name |
 |---|---|---|---|
 | `SubstationGroup` | `SSG` | `SSG_<site>` | site code |
+| `GenerationUnit` | `SGU` | `SGU_<site>_<name>` | `Block <n>`, n the first number no unit of the site uses; commonly the block name is typed instead (`GT11`, `Unit 3`) |
 | `Substation` (yard) | `SSY` | `SSY_<site>_<yard>` | yard name; the yard name itself defaults to the voltage without its AC prefix, `DC` suffixed for direct current (`AC230KV` → `230KV`, `DC300KV` → `300KVDC`, `AC400V` → `400V`; `yardNameForVoltage`) |
 | `SubstationCircuit` | `SCC` | `SCC_<site>_<yard>_<line \| X<n>>` | line name / `X<n>` |
 | `SubstationBay` | `SBA` | `SBA_<site>_<yard>_<bay>` | `BAY_<bay>` |
@@ -450,6 +452,7 @@ interface NetworkDocument {
   revision: number           // +1 on every save / rollback / overwrite-import
   createdAt: string; updatedAt: string
   substationGroups: SubstationGroupRecord[]
+  generationUnits:  GenerationUnitRecord[]             // generating units of the sites (added on read when missing)
   substations:      SubstationRecord[]
   buses:            SubstationBusRecord[]
   bays:             SubstationBayRecord[]
@@ -464,7 +467,7 @@ interface NetworkDocument {
 }
 ```
 
-`NetworkCollectionName` is the union of the eleven array keys; `networkCollectionNames`
+`NetworkCollectionName` is the union of the thirteen array keys; `networkCollectionNames`
 lists them. `NetworkSummary` (for listings) carries id, name, revision,
 `counts` per collection and the number of unsaved journal entries.
 
@@ -484,6 +487,7 @@ it unique via `uniqueId()`.
 | Record | Mirrors | Required fields | Optional fields |
 |---|---|---|---|
 | `SubstationGroupRecord` | `SubstationGroup` | `groupName`, `coords` | `name`, `generation` (the site is a power plant / producer), `generationTypes[]` (`GenerationType`, unique; meaningful when `generation` is set), `extensionOf` (id of the site it extends, e.g. a plant switchyard next to a substation; one level deep: the parent is no extension itself; renaming the parent follows, deleting it leaves the extensions as sites of their own; helpers in `src/network/extensions.ts`) |
+| `GenerationUnitRecord` | `GenerationUnit` | `groupId` (the site), `name` (commonly the block name), `generationType` (`GenerationType`) | `capacityMw` (installed capacity in MW, at least 0; unset while unknown), `planned`; the site should be a generation site listing the unit's type, and a built unit at a planned site warns (warnings, never blocking); deleting the site deletes its units, renaming it follows |
 | `SubstationRecord` (yard) | `Substation` | `groupId`, `yardName`, `voltage` | `arrangement`, `coords` |
 | `SubstationBusRecord` | `SubstationBus` | `substationId`, `busType`, `row` | `busNumber`, `bayNumber`, `voltage`, `current` |
 | `SubstationBayRecord` | `SubstationBay` | `substationId`, `bayNumber`, `column` | `voltage`, `current` |
@@ -692,7 +696,7 @@ under a new, network-unique id and rewrites every reference: parent ids, path
 and line ids, path ends, connection junctions and nodes; `checkNewId` gives the
 reason a new id is refused), `cascadeDeleteOps(doc, collection, id)` (deletes a record with its
 dependants and prunes it from connections, dropping connections left with
-fewer than two nodes; deleting a bay keeps its take-offs but clears their
+fewer than two nodes; deleting a site deletes its generation units; deleting a bay keeps its take-offs but clears their
 `bayId`), `uniqueId(doc, prefix)`, `connectionsOfNode`, `findRecord`.
 Undo/redo in the UI is implemented with inverse ops, so undos are journaled
 too.
@@ -725,6 +729,7 @@ and are upgraded on their next save. Current migrations:
   normalised the same way on read).
 * v6: transformer equipment without `windings` gets them derived from its
   terminals.
+* v7: documents without a `generationUnits` collection get an empty one.
 
 ### 6.9 Storage and versions
 

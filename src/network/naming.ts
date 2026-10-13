@@ -28,6 +28,7 @@ import {applyOps, NetworkOp, renameRecordOps} from "./ops";
 import {pathEndOf} from "./refs";
 import {TransmissionVoltage} from "../models/transmission.voltage";
 import {SubstationGroup} from "../models/substation.group";
+import {GenerationUnit} from "../models/generation.unit";
 import {Substation} from "../models/substation";
 import {SubstationBay} from "../models/substation.bay";
 import {SubstationBus, SubstationBusType} from "../models/substation.bus";
@@ -75,6 +76,20 @@ export function endpointToken(doc: NetworkDocument, ref: ConnectionJunctionRef |
 
 export function siteNaming(groupName: string, name?: string): Naming {
     return {id: SubstationGroup.defaultId({groupName}), name: name?.trim() || SubstationGroup.defaultName({groupName}) || groupName}
+}
+
+/**
+ * A generating unit of a site: the typed name (commonly the block name), else `Block <n>` with the first number no
+ * unit of the site uses yet; id `SGU_<site>_<name>`.
+ */
+export function generationUnitNaming(doc: NetworkDocument, groupId: string, name?: string): Naming {
+    const groupName = doc.substationGroups.find(g => g.id === groupId)?.groupName
+    const typed = name?.trim()
+    if (typed) return {id: GenerationUnit.defaultId({groupName, name: typed}), name: typed}
+    const used = new Set((doc.generationUnits ?? []).filter(u => u.groupId === groupId).map(u => u.name))
+    let sequence = 1
+    while (used.has(GenerationUnit.defaultName({sequence}))) sequence++
+    return {id: GenerationUnit.defaultId({groupName, sequence}), name: GenerationUnit.defaultName({sequence})}
 }
 
 /** A yard: name from `yardName`, else from the voltage (`230KV`, `300KVDC`); id `SSY_<site>_<yard>`. */
@@ -250,8 +265,11 @@ export function junctionConnectionNaming(doc: NetworkDocument, junctionId: strin
 
 /* ---------- regenerating existing records ---------- */
 
-/** Collections whose records can get their id from the model rules. A site regenerates its id (`SSG_<code>`) only, a junction its id from its name (`TJT_<name>`) only. */
-export const REGENERABLE_COLLECTIONS: NetworkCollectionName[] = ['substationGroups', 'junctions', 'substations', 'buses', 'bays', 'equipments', 'takeOffs', 'paths', 'circuits', 'lines']
+/**
+ * Collections whose records can get their id from the model rules. A site regenerates its id (`SSG_<code>`) only, a
+ * junction its id from its name (`TJT_<name>`) only, a generation unit its id from its site and name (`SGU_<site>_<name>`).
+ */
+export const REGENERABLE_COLLECTIONS: NetworkCollectionName[] = ['substationGroups', 'generationUnits', 'junctions', 'substations', 'buses', 'bays', 'equipments', 'takeOffs', 'paths', 'circuits', 'lines']
 /** Of those, the ones whose `name` is derived too: from the code / number / line name inside a yard, from the ends on the transmission side. A site keeps the name the user gave it and a yard its optional display name. */
 export const NAME_REGENERABLE_COLLECTIONS: NetworkCollectionName[] = ['buses', 'bays', 'equipments', 'takeOffs', 'paths', 'circuits', 'lines']
 const NAMED_BY_RULES = NAME_REGENERABLE_COLLECTIONS
@@ -319,6 +337,11 @@ export function defaultNamingFor(doc: NetworkDocument, collection: NetworkCollec
             // Mass regeneration takes the id only (sites are not in NAME_REGENERABLE_COLLECTIONS); the site panel's "auto" buttons use both.
             const g = doc.substationGroups.find(r => r.id === id)
             return g && siteNaming(g.groupName)
+        }
+        case 'generationUnits': {
+            // The id follows the site and the name; the name is the user's (commonly the block name).
+            const u = (doc.generationUnits ?? []).find(r => r.id === id)
+            return u && generationUnitNaming(doc, u.groupId, u.name)
         }
         case 'junctions': {
             // The id follows the name (`TJT_<name>`); an unnamed site junction goes by its site's code, any other unnamed one has no rule.
@@ -459,7 +482,7 @@ export function regenerateNamingOps(doc: NetworkDocument, targets: RegenerateTar
         const moving = planned.filter(p => p.naming && p.naming.id !== p.t.id)
         const movingIds = new Set(moving.map(p => p.t.id))
         const taken = new Set<string>()
-        for (const c of networkCollectionNames) for (const r of doc[c] as AnyNetworkRecord[]) if (!movingIds.has(r.id)) taken.add(r.id)
+        for (const c of networkCollectionNames) for (const r of (doc[c] ?? []) as AnyNetworkRecord[]) if (!movingIds.has(r.id)) taken.add(r.id)
         const renames: { t: RegenerateTarget; to: string }[] = []
         for (const p of moving) {
             const to = firstFreeId(p.naming!.id, taken)

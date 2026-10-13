@@ -11,7 +11,7 @@
 import {ValidationIssue} from "../templates/validation";
 import {TransmissionVoltage} from "../models/transmission.voltage";
 import {TransmissionWireType, TransmissionWireUnit} from "../models/transmission.conductor";
-import {GenerationType} from "../models/generation";
+import {GENERATION_LABELS, GenerationType} from "../models/generation";
 import {SubstationArrangement} from "../models/substation";
 import {SubstationBusType} from "../models/substation.bus";
 import {SubstationEquipmentType} from "../models/substation.equipment";
@@ -126,6 +126,12 @@ export function validateNetworkRecordShape(collection: NetworkCollectionName, re
             }
             break
         }
+        case 'generationUnits':
+            if (!isNonEmptyString(record.groupId)) issues.push({path: p('groupId'), message: 'groupId is required'})
+            if (!isNonEmptyString(record.name)) issues.push({path: p('name'), message: 'name is required'})
+            checkEnum(issues, record.generationType, p('generationType'), enumValues(GenerationType), true)
+            checkOptionalNumber(issues, record.capacityMw, p('capacityMw'), {min: 0})
+            break
         case 'substations':
             if (!isNonEmptyString(record.groupId)) issues.push({path: p('groupId'), message: 'groupId is required'})
             if (!isNonEmptyString(record.yardName)) issues.push({path: p('yardName'), message: 'yardName is required'})
@@ -315,7 +321,7 @@ export interface NetworkIndex {
 
 export function indexNetwork(doc: NetworkDocument): NetworkIndex {
     const byId = new Map<string, { collection: NetworkCollectionName; record: AnyNetworkRecord }>()
-    for (const c of networkCollectionNames) for (const r of doc[c]) if (!byId.has(r.id)) byId.set(r.id, {collection: c, record: r})
+    for (const c of networkCollectionNames) for (const r of doc[c] ?? []) if (!byId.has(r.id)) byId.set(r.id, {collection: c, record: r})
     return {byId}
 }
 
@@ -359,6 +365,7 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
     }
 
     d.substations.forEach((s, i) => ref(`substations.${i}.groupId`, s.groupId, 'substationGroups', 'substation group'))
+    d.generationUnits.forEach((u, i) => ref(`generationUnits.${i}.groupId`, u.groupId, 'substationGroups', 'substation group'))
     // A site may extend another one, one level deep.
     d.substationGroups.forEach((g, i) => {
         if (!g.extensionOf) return
@@ -533,6 +540,14 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
     const groups = byId(d.substationGroups), yards = byId(d.substations), takeOffs = byId(d.takeOffs), circuits = byId(d.circuits)
     d.substations.forEach((y, i) => {
         if (!y.planned && groups.get(y.groupId)?.planned) warn(`substations.${i}.planned`, `yard ${y.yardName} is built but its site ${groups.get(y.groupId)!.groupName} is planned`)
+    })
+    // A generation unit belongs to a generation site that lists its kind of generation.
+    d.generationUnits.forEach((u, i) => {
+        const site = groups.get(u.groupId)
+        if (!site) return
+        if (!site.generation) warn(`generationUnits.${i}.groupId`, `generation unit ${u.name} is at site ${site.groupName}, which is not a generation site: tick "Generation site" on the site`)
+        else if (!(site.generationTypes ?? []).includes(u.generationType)) warn(`generationUnits.${i}.generationType`, `generation unit ${u.name} is ${GENERATION_LABELS[u.generationType] ?? u.generationType}, a type site ${site.groupName} does not list`)
+        if (!u.planned && site.planned) warn(`generationUnits.${i}.planned`, `generation unit ${u.name} is built but its site ${site.groupName} is planned`)
     })
     d.takeOffs.forEach((t, i) => {
         if (!t.planned && yards.get(t.substationId)?.planned) warn(`takeOffs.${i}.planned`, `take-off ${t.lineName} is built but its yard is planned`)

@@ -1265,6 +1265,49 @@ pre {
     align-self: center;
 }
 
+/* a generating unit of a site, edited in place: badge, name, MW and buttons, then type and planned below */
+.gen-unit-row {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) 76px auto;
+    grid-template-areas: "badge name mw act" ". type planned planned";
+    gap: 3px 4px;
+    align-items: center;
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border, rgba(127, 127, 127, .25));
+}
+
+.gen-unit-row .gu-badge { grid-area: badge; }
+.gen-unit-row .gu-name { grid-area: name; }
+.gen-unit-row .gu-mw { grid-area: mw; }
+.gen-unit-row .gu-act { grid-area: act; justify-self: end; }
+.gen-unit-row .gu-type { grid-area: type; }
+.gen-unit-row .gu-planned { grid-area: planned; }
+
+.gen-unit-row input[type="text"], .gen-unit-row input[type="number"], .gen-unit-row select {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.gen-unit-row label {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+}
+
+.gen-unit-row input.invalid {
+    border-color: var(--danger, #d62828);
+}
+
+.gen-unit-row.gen-unit-head {
+    grid-template-areas: "badge name mw act";
+    padding-bottom: 0;
+    margin-bottom: 2px;
+    border-bottom: none;
+}
+
 .find-nocheck {
     display: inline-block;
     width: 13px;

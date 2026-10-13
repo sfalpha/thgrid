@@ -13,6 +13,7 @@ import {
     ConnectionRecord,
     NetworkCollectionName,
     ConnectionScope,
+    GenerationUnitRecord,
     NetworkDocument,
     NetworkNodeKind,
     NetworkNodeRef,
@@ -25,7 +26,7 @@ import {
     TransmissionPathRecord,
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, NetworkOp, pickId, uniqueId} from '@shared/network/ops'
-import {junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
+import {generationUnitNaming, junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
 import {buildCircuitGraph, fillLineEnds, formLine, guessLineEnds, LineEndCandidate, lineEndCandidates, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits} from '@shared/network/lines'
 import {yardNameForVoltage} from '@shared/models/naming'
 import {GENERATION_BADGES, GENERATION_LABELS, GenerationType} from '@shared/models/generation'
@@ -74,7 +75,7 @@ import {
 } from './linkOps'
 import {describeNode} from './SubstationPanels'
 import {nextJunctionConnectionName} from '@shared/network/migrate'
-import {CircuitDraft, CreateDraft, endLocation, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, PLANNED_COLOR, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
+import {capacityText, CircuitDraft, CreateDraft, endLocation, generationUnitsOf, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, PLANNED_COLOR, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
 import {JunctionSymbol, VoltageSymbol} from './symbols'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 
@@ -692,6 +693,110 @@ function SiteExtensionsPanel({record, locate}: { record: SubstationGroupRecord; 
     )
 }
 
+/** Ops that make `site` a generation site listing `type`, when it is not one yet or does not list it. */
+function siteGenerationTypeOps(site: SubstationGroupRecord, type: GenerationType): NetworkOp[] {
+    const types = site.generationTypes ?? []
+    return site.generation && types.includes(type) ? [] : [{type: 'upsert', collection: 'substationGroups', record: {...site, generation: true, generationTypes: types.includes(type) ? types : [...types, type]}}]
+}
+
+/** The generation type options: the ones the site lists first, the others noting that picking them adds them to the site. */
+function generationTypeOptions(types: GenerationType[], site: SubstationGroupRecord) {
+    const listed = site.generationTypes ?? []
+    return [...listed.filter(t => types.includes(t)), ...types.filter(t => !listed.includes(t))]
+        .map(t => <option key={t} value={t}>{GENERATION_LABELS[t] ?? t}{listed.includes(t) ? '' : ' (adds it to the site)'}</option>)
+}
+
+/** One generating unit, edited in place: name, generation type, capacity in MW and planned; Apply / Reset while edited. */
+function GenerationUnitRow({unit, site, types}: { unit: GenerationUnitRecord; site: SubstationGroupRecord; types: GenerationType[] }) {
+    const ed = useNetworkEditor()
+    const d = useDraft(unit)
+    const badge = GENERATION_BADGES[d.draft.generationType]
+    const nameOk = d.draft.name.trim().length > 0
+    const apply = () => nameOk && ed.apply([{type: 'upsert', collection: 'generationUnits', record: {...d.draft, name: d.draft.name.trim()}}, ...siteGenerationTypeOps(site, d.draft.generationType)])
+    return (
+        <div className="gen-unit-row">
+            <span className="map-gen-badge gu-badge" style={{background: badge?.color}} title={GENERATION_LABELS[d.draft.generationType] ?? d.draft.generationType}>{badge?.letter ?? '?'}</span>
+            <input type="text" value={d.draft.name} onChange={e => d.set('name', e.target.value)} aria-label="Name" className={`gu-name ${nameOk ? '' : 'invalid'}`} title={unit.id}/>
+            <select className="gu-type" value={d.draft.generationType} onChange={e => d.set('generationType', e.target.value as GenerationType)} aria-label="Generation type">
+                {generationTypeOptions(types, site)}
+            </select>
+            <input className="gu-mw" type="number" min={0} step="any" value={d.draft.capacityMw ?? ''} aria-label="Capacity (MW)" placeholder="MW"
+                   onChange={e => d.set('capacityMw', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))}/>
+            <label className="small gu-planned" title="Planned (not built yet)"><input type="checkbox" checked={!!d.draft.planned} onChange={e => d.set('planned', e.target.checked || undefined)}/> planned</label>
+            <span className="toolbar gu-act" style={{gap: 4}}>
+                {d.dirty && <button type="button" className="primary small" disabled={!nameOk} onClick={apply}>Apply</button>}
+                {d.dirty && <button type="button" className="small" onClick={d.reset}>Reset</button>}
+                {!d.dirty && <button type="button" className="small" title="Delete this unit" onClick={() => {
+                    if (window.confirm(`Delete generation unit ${unit.name} of ${site.groupName}?`)) ed.apply([{type: 'delete', collection: 'generationUnits', id: unit.id}])
+                }}>✕</button>}
+            </span>
+        </div>
+    )
+}
+
+/**
+ * The generating units of a site (`generationUnits`): name (commonly the block name), generation type and capacity in
+ * MW, each edited in place, the installed capacity in total, and a form adding one. A unit of a type the site does not
+ * list adds the type to the site (and flags it a generation site). Shown for a generation site, and for any site that
+ * still has units, with a warning when it is no generation site.
+ */
+function GenerationUnitsPanel({site, meta}: { site: SubstationGroupRecord; meta: MetaResponse }) {
+    const ed = useNetworkEditor()
+    const units = generationUnitsOf(ed.doc, site.id)
+    const types = meta.enums.generationType as GenerationType[]
+    const [name, setName] = useState('')
+    const [type, setType] = useState<GenerationType | ''>('')
+    const [mw, setMw] = useState<number | undefined>()
+    const [planned, setPlanned] = useState(false)
+    useEffect(() => {
+        setName('')
+        setType('')
+        setMw(undefined)
+        setPlanned(false)
+    }, [site.id])
+    /** The type of the new unit: the one picked, else the one the site's last unit has, else the site's first listed type. */
+    const newType = type || units[units.length - 1]?.generationType || site.generationTypes?.[0]
+    const naming = generationUnitNaming(ed.doc, site.id, name)
+    const add = () => {
+        if (!newType) return
+        const record: GenerationUnitRecord = {id: uniqueId(ed.doc, naming.id), groupId: site.id, name: naming.name, generationType: newType, ...(mw !== undefined ? {capacityMw: mw} : {}), ...(planned || site.planned ? {planned: true} : {})}
+        if (ed.apply([{type: 'upsert', collection: 'generationUnits', record}, ...siteGenerationTypeOps(site, newType)])) {
+            setName('')
+            setMw(undefined)
+        }
+    }
+    const total = capacityText(units)
+    return (
+        <div className="panel">
+            <div className="panel-header">
+                <h3 style={{margin: 0}}>Generation units ({units.length})</h3>
+                <span className="spacer"/>
+                {total && <span className="small" title="Installed capacity of the units"><strong>{total}</strong></span>}
+            </div>
+            {!site.generation && units.length > 0 && <Notice kind="warn">⚠ {site.groupName} is not a generation site: tick "Generation site" above, or delete these units.</Notice>}
+            {units.length === 0 && <p className="small muted" style={{marginTop: 0}}>No units yet. Add each block of the plant (a gas or steam turbine set, a combined-cycle block, a hydro unit, a farm section, a battery system) with its capacity.</p>}
+            {units.length > 0 && (
+                <div className="gen-unit-row small muted gen-unit-head">
+                    <span className="gu-name">Name (block) · type</span><span className="gu-mw">MW</span>
+                </div>
+            )}
+            {units.map(u => <GenerationUnitRow key={u.id} unit={u} site={site} types={types}/>)}
+            <h4 className="muted" style={{marginTop: 10}}>Add a unit</h4>
+            <div className="gen-unit-row">
+                <span className="map-gen-badge gu-badge" style={{background: newType ? GENERATION_BADGES[newType]?.color : undefined}}>{newType ? GENERATION_BADGES[newType]?.letter : '?'}</span>
+                <input className="gu-name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder={naming.name} aria-label="Name" title="Commonly the block name; empty: the next free Block <n>"/>
+                <select className="gu-type" value={newType ?? ''} onChange={e => setType(e.target.value as GenerationType)} aria-label="Generation type">
+                    {!newType && <option value="">choose a type…</option>}
+                    {generationTypeOptions(types, site)}
+                </select>
+                <input className="gu-mw" type="number" min={0} step="any" value={mw ?? ''} placeholder="MW" aria-label="Capacity (MW)" onChange={e => setMw(e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))}/>
+                <label className="small gu-planned" title="Planned (not built yet)"><input type="checkbox" checked={planned || !!site.planned} disabled={!!site.planned} onChange={e => setPlanned(e.target.checked)}/> planned</label>
+                <button type="button" className="small primary gu-act" disabled={!newType} onClick={add} title={`Adds ${naming.name} (${uniqueId(ed.doc, naming.id)})`}>+ Unit</button>
+            </div>
+        </div>
+    )
+}
+
 function SitePanel({meta, record, navigate, locate}: MapPanelsProps & { record: SubstationGroupRecord }) {
     const ed = useNetworkEditor()
     const d = useDraft(record)
@@ -748,7 +853,11 @@ function SitePanel({meta, record, navigate, locate}: MapPanelsProps & { record: 
                     <TextField label="Coordinates" value={coords} onChange={setCoords} mono hint="lat, lon (drag the marker to move)" error={parsed ? undefined : 'lat, lon expected'} className="span-all"/>
                     <CheckboxField label="Planned (not built yet): marker drawn in grey, yard symbols in a dull voltage colour; built yards here get a warning" checked={!!d.draft.planned} className="span-all" onChange={v => d.set('planned', v || undefined)}/>
                     <CheckboxField label="Generation site (power plant / power producer)" checked={!!d.draft.generation} className="span-all"
-                                   onChange={v => d.setDraft(x => ({...x, generation: v || undefined, generationTypes: v ? x.generationTypes : undefined}))}/>
+                                   onChange={v => d.setDraft(x => {
+                                       // ticked again: the kinds of its generation units, when it lists none
+                                       const unitTypes = [...new Set(generationUnitsOf(ed.doc, record.id).map(u => u.generationType))]
+                                       return {...x, generation: v || undefined, generationTypes: v ? (x.generationTypes?.length ? x.generationTypes : unitTypes.length ? unitTypes : undefined) : undefined}
+                                   })}/>
                     {d.draft.generation && (
                         <div className="span-all">
                             <div className="small muted" style={{marginBottom: 4}}>Generation types (one badge each on the map)</div>
@@ -775,6 +884,7 @@ function SitePanel({meta, record, navigate, locate}: MapPanelsProps & { record: 
                     setCoords(coordsText(record.coords))
                 }} onApply={() => parsed && ed.apply(moveSiteOps(ed.doc, d.draft, parsed))}/>
             </div>
+            {(record.generation || (ed.doc.generationUnits ?? []).some(u => u.groupId === record.id)) && <GenerationUnitsPanel site={record} meta={meta}/>}
             <SiteExtensionsPanel record={record} locate={locate}/>
             <div className="panel">
                 <div className="panel-header">

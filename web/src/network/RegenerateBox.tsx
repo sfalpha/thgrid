@@ -19,6 +19,8 @@ export function collectionLabel(c: NetworkCollectionName): string {
     switch (c) {
         case 'substationGroups':
             return 'site'
+        case 'generationUnits':
+            return 'generation unit'
         case 'substations':
             return 'yard'
         case 'buses':
