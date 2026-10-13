@@ -1004,7 +1004,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 dashArray: c.planned ? `1 ${weight * 2 + 3}` : !route ? '12 7' : looseEnd ? '6 6' : undefined, lineCap: c.planned ? 'round' : undefined,
             })
             if (merged) line.bindTooltip(`${unit.circuits.length} circuits · ${esc(c.energizedVoltage ?? c.voltage ?? 'no voltage')}${c.planned ? ' · planned' : ''}${route ? ` · ${esc(route.name)}` : ' · no path'}<br>${unit.circuits.map(x => esc(x.name)).join('<br>')}`, {sticky: true, className: 'map-label'})
-            else line.bindTooltip(`${c.name}${c.planned ? ' · planned' : ''}${c.voltage ? ` · ${c.voltage}` : ''}${reVolted ? ` · energized ${c.energizedVoltage}` : ''}${c.bundle ? ` · ${c.bundle}x` : ''}${route ? ` · ${route.name}` : ' · no path'}${lineNames ? ` · line ${lineNames.join(', ')}` : ''}`, {sticky: true, className: 'map-label'})
+            else line.bindTooltip(`${c.name}${c.planned ? ' · planned' : ''}${c.voltage ? ` · ${c.voltage}` : ''}${reVolted ? ` · energized ${c.energizedVoltage}` : ''}${c.bundle ? ` · ${c.bundle}x` : ''}${route ? ` · ${route.name}` : ' · no path'}${lineNames ? ` · line ${lineNames.join(', ')}` : ' · ⚠ no line'}`, {sticky: true, className: 'map-label'})
             const editing = !!route && mode === 'editWaypoints' && wp?.pathId === route.id && !verticesDrawn.has(route.id)
             if (editing) verticesDrawn.add(route.id)
             line.on('click', e => {

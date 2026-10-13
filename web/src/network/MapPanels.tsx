@@ -407,7 +407,21 @@ function OverviewPanel({navigate, locate, setMode}: MapPanelsProps) {
                 {tab === 'lines' && (() => {
                     const missing = d.lines.filter(l => !l.from || !l.to)
                     const fills = fillLineEnds(d).filter(x => x.filled.length > 0)
-                    return (
+                    /** Circuits that are a section of no line: each opens its panel, where "Form a line" makes one. */
+                    const lined = new Set(d.lines.flatMap(l => l.circuitIds))
+                    const unlined = d.circuits.filter(c => !lined.has(c.id))
+                    return (<>
+                        {unlined.length > 0 && (
+                            <p className="small" style={{margin: '0 0 6px'}}>
+                                <span className="warn-dot">⚠ {unlined.length} circuit{unlined.length === 1 ? ' is' : 's are'} a section of no line:</span>{' '}
+                                {unlined.slice(0, 8).map((c, i) => <span key={c.id}>{i ? ', ' : ''}<a href="#" title="Open the circuit: Form a line is in its panel" onClick={e => {
+                                    e.preventDefault()
+                                    ed.select({collection: 'circuits', id: c.id})
+                                    locate?.({collection: 'circuits', id: c.id})
+                                }}>{c.name}</a></span>)}
+                                {unlined.length > 8 && <span className="muted"> and {unlined.length - 8} more (Circuits tab, "only ⚠")</span>}
+                            </p>
+                        )}
                         <div className="toolbar" style={{marginBottom: 6}}>
                             <span className="muted small">{d.lines.length} line{d.lines.length === 1 ? '' : 's'}{missing.length ? `, ${missing.length} missing an end` : ''}</span>
                             <span className="spacer" style={{flex: 1}}/>
@@ -422,7 +436,7 @@ function OverviewPanel({navigate, locate, setMode}: MapPanelsProps) {
                                 ed.apply(rename ? [...ops, ...regen.ops] : ops)
                             }}>Fill missing ends ({fills.length})</button>}
                         </div>
-                    )
+                    </>)
                 })()}
                 {tab !== 'find' && <FindPanel key={tab} embedded locate={locate} fixedKind={tab}/>}
             </div>
@@ -1696,7 +1710,7 @@ function CircuitsWithTower({path, circuits, locate}: { path: TransmissionPathRec
                                 {lines.length ? <>line {lines.map((l, i) => <span key={l.id}>{i ? ', ' : ''}<a href="#" onClick={e => {
                                     e.preventDefault()
                                     pick({collection: 'lines', id: l.id})
-                                }}>{l.name}</a></span>)} · </> : 'no line · '}
+                                }}>{l.name}</a></span>)} · </> : null}
                                 {from?.label ?? 'loose'} → {to?.label ?? 'loose'}
                             </div>
                         </div>
@@ -2244,7 +2258,7 @@ function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locat
     return (
         <div className="panel">
             <h3>Lines</h3>
-            {lines.length === 0 ? <p className="small muted">Not a section of any line yet.</p> : lines.map(l => (
+            {lines.length === 0 ? <Notice kind="warn">⚠ Not a section of any line: form one below, from a yard or junction on each side.</Notice> : lines.map(l => (
                 <div key={l.id} className="toolbar small" style={{marginBottom: 4}}>
                     <span style={{color: voltageColor(l.voltage)}}>■</span>
                     <a href="#" onClick={e => {

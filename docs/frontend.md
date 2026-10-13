@@ -755,7 +755,10 @@ immediately.
   and changing the search or filters goes back to the first page), the
   regenerate box; *Paths* adds a
   count and a **Delete unused** button for paths no circuit uses (new lines
-  are made with the toolbar's *+ Line* wizard); *Lines* adds a count of the
+  are made with the toolbar's *+ Line* wizard); *Lines* adds a ⚠ list of
+  the circuits that are a section of no line (each opens its panel, where
+  *Form a line* makes one; the first eight, the rest by the Circuits tab's
+  ⚠ filter), a count of the
   lines missing an end and **Fill missing ends (n)**, which sets every FROM /
   TO a line does not state from its own sections (`fillLineEnds` /
   `guessLineEnds` in `src/network/lines.ts`: where the first / last section
@@ -879,7 +882,9 @@ immediately.
   adopts the connection voltage, and the circuit rows in the path, site,
   junction and find lists carry the same ⚠ marker; below it a **Lines**
   panel lists the lines the circuit is a section of, with a "remove" per
-  line, and **Form a line**: walking from the circuit through junction
+  line (a circuit in no line gets a ⚠ notice there instead, and "⚠ no line"
+  in the path, site, junction and find lists, `circuitWarnings`, and in its
+  map tooltip), and **Form a line**: walking from the circuit through junction
   nodes, every yard node and junction node reached on either side is a
   place the line can end at (`lineEndCandidates` in `src/network/lines.ts`:
   a yard ends the walk, a junction (a site junction or a line junction) is

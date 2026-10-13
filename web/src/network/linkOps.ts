@@ -313,7 +313,8 @@ export function circuitStatus(doc: NetworkDocument, circuitId: string): CircuitS
 
 /**
  * Short attention markers for lists: loose ends, an end away from its path, energized voltage differing from a
- * connection; a circuit without a path that is not attached at both ends cannot be drawn on the map.
+ * connection, a circuit that is a section of no line; a circuit without a path that is not attached at both ends
+ * cannot be drawn on the map.
  */
 export function circuitWarnings(doc: NetworkDocument, circuitId: string): string[] {
     const st = circuitStatus(doc, circuitId)
@@ -324,6 +325,7 @@ export function circuitWarnings(doc: NetworkDocument, circuitId: string): string
         st.looseTo ? `loose ${CIRCUIT_END_TO}` : '',
         st.mismatch ? 'end differs from path' : '',
         ...st.energized.map(m => `energized ${c?.energizedVoltage ?? 'not set'} ≠ ${m.expected} at ${m.end}`),
+        doc.lines.some(l => l.circuitIds.includes(circuitId)) ? '' : 'no line',
     ].filter(Boolean)
 }
 
