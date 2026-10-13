@@ -2,25 +2,25 @@ import {useCallback, useEffect, useRef, useState} from 'react'
 import L from 'leaflet'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 import {CIRCUIT_END_FROM, CIRCUIT_END_TO, CircuitEnd, ConnectionJunctionKind, ConnectionJunctionRef, ConnectionRecord, ConnectionScope, NetworkDocument, NetworkNodeKind, SubstationGroupRecord, TransmissionCircuitRecord, TransmissionJunctionRecord, TransmissionPathRecord} from '@shared/network/records'
-import {cascadeDeleteOps, pickId, uniqueId} from '@shared/network/ops'
+import {cascadeDeleteOps, pickId} from '@shared/network/ops'
 import {moveSiteOps} from '@shared/network/siteJunction'
 import {siteOfRef} from '@shared/network/refs'
 import {TransmissionVoltage} from '@shared/models/transmission.voltage'
 import {extensionsOf} from '@shared/network/extensions'
 import {hasTowerHints, towerLanePositions} from './towerLayout'
-import {junctionNaming, pathNaming, siteNaming} from '@shared/network/naming'
+import {junctionNaming, siteNaming} from '@shared/network/naming'
 import {buildSplitPathPlan} from './splitPath'
 import {confirmDeleteLines, linesRemovedBy, linesRemovedNote} from './deleteLines'
 import {GENERATION_BADGES, GENERATION_LABELS, GENERATION_SITE_COLOR} from '@shared/models/generation'
 import {useNetworkEditor} from './NetworkContext'
 import {useSideWidth} from '../hooks/useSideWidth'
 import {MapPanels} from './MapPanels'
-import {CircuitDraft, CreateDraft, EMPTY_LINE_DRAFT, endLocation, Endpoint, LineDraft, lineDraftJunctionClick, lineDraftPlaces, lineDraftRemove, lineDraftSiteClick, JUNCTION_COLOR, JUNCTION_FILL_OPACITY, junctionSize, locationOfRef, Mode, plannedVoltageColor, mapDetailScale, SITE_MARKER_MIN_PX, SITE_MARKER_PX, SITE_SIZE_RANK, siteSize, voltageColor, voltageKv, voltageSymbolSvg, WaypointEdit} from './mapUtil'
+import {CircuitDraft, CreateDraft, dropDraftEnd, EMPTY_CIRCUIT_DRAFT, EMPTY_LINE_DRAFT, EMPTY_PATH_DRAFT, endLocation, LineDraft, lineDraftJunctionClick, lineDraftPlaces, lineDraftRemove, lineDraftSiteClick, PathDraft, pickDraftEnd, JUNCTION_COLOR, JUNCTION_FILL_OPACITY, junctionSize, locationOfRef, Mode, plannedVoltageColor, mapDetailScale, SITE_MARKER_MIN_PX, SITE_MARKER_PX, SITE_SIZE_RANK, siteSize, voltageColor, voltageKv, voltageSymbolSvg, WaypointEdit} from './mapUtil'
 import type {Selection} from './NetworkContext'
 import type {MetaResponse} from '../api/client'
 import {yardNameForVoltage} from '@shared/models/naming'
 
-export type {Mode, Endpoint, CircuitDraft} from './mapUtil'
+export type {Mode, CircuitDraft} from './mapUtil'
 
 /** Polyline weight in px: 2 for a single conductor, +0.5 per extra sub-conductor in the bundle (capped at 4.5). */
 export function circuitWeight(bundle?: number): number {
@@ -489,7 +489,8 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
     const layerRef = useRef<L.LayerGroup | null>(null)
     const fitted = useRef(false)   // the initial fit to the sites happened (or a remembered view was restored)
     const [mode, setModeState] = useState<Mode>('select')
-    const [draft, setDraft] = useState<CircuitDraft>({})
+    /** Mode `addCircuit`: the new circuit's ends, set in its panel or by clicking sites and junctions on the map (right-click takes an end out). */
+    const [draft, setDraft] = useState<CircuitDraft>(EMPTY_CIRCUIT_DRAFT)
     const modeRef = useRef<Mode>(mode)
     const edRef = useRef(ed)
     edRef.current = ed
@@ -524,18 +525,14 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         if (r.draft) setLineDraft(r.draft)
     }, [])
 
-    /** Mode `addPath`: the site or junction picked as the new path's FROM end. */
-    const [pathFrom, setPathFrom] = useState<ConnectionJunctionRef | null>(null)
-    const pathFromRef = useRef<ConnectionJunctionRef | null>(null)
+    /** Mode `addPath`: the new path's ends, name and id, set in its panel or by clicking sites and junctions on the map (right-click takes an end out). */
+    const [pathDraft, setPathDraft] = useState<PathDraft>(EMPTY_PATH_DRAFT)
     const setMode = useCallback((m: Mode) => {
         modeRef.current = m
         setModeState(m)
-        if (m !== 'addCircuit') setDraft({})
+        if (m !== 'addCircuit') setDraft(EMPTY_CIRCUIT_DRAFT)
         if (m !== 'addLine') setLineDraft(EMPTY_LINE_DRAFT)
-        if (m !== 'addPath') {
-            pathFromRef.current = null
-            setPathFrom(null)
-        }
+        if (m !== 'addPath') setPathDraft(EMPTY_PATH_DRAFT)
         if (m !== 'editWaypoints') {
             wpRef.current = null
             setWp(null)
@@ -600,28 +597,6 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         const next = pathRecord.waypoints.filter((_, i) => i !== state.selected)
         if (setPath(next)) updateWp({selected: next.length ? Math.min(state.selected, next.length - 1) : null})
     }, [editedPath, setPath, updateWp])
-
-    const addEndpoint = useCallback((ep: Endpoint) => {
-        setDraft(d => !d.from ? {from: ep} : d.to ? d : {...d, to: ep, pendingSite: undefined})
-    }, [])
-
-    /** Mode `addPath`: the first click picks the FROM end, the second creates the path (no circuits, no waypoints yet) and selects it. */
-    const addPathEnd = useCallback((ref: ConnectionJunctionRef) => {
-        const from = pathFromRef.current
-        if (!from) {
-            pathFromRef.current = ref
-            setPathFrom(ref)
-            return
-        }
-        if (from.kind === ref.kind && from.id === ref.id) return
-        const e = edRef.current
-        const naming = pathNaming(e.doc, from, ref)
-        const record: TransmissionPathRecord = {id: uniqueId(e.doc, naming.id), name: naming.name, from, to: ref, waypoints: []}
-        if (e.apply([{type: 'upsert', collection: 'paths', record}])) {
-            setMode('select')
-            e.select({collection: 'paths', id: record.id})
-        }
-    }, [setMode])
 
     /**
      * Splits the path remembered by `startSplit` at a map click (`coords`), or
@@ -793,18 +768,10 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         const doc = groupedInto.size ? groupedView(shown, groupedInto) : shown
         const sel = ed.selection
         const draggable = mode === 'select'
-        const pickingSite = draft.pendingSite
         const draftEndpointIds = new Set<string>()
-        if (pathFrom) draftEndpointIds.add(pathFrom.id)
+        if (mode === 'addPath') for (const end of [pathDraft.from, pathDraft.to]) if (end) draftEndpointIds.add(end.slice(2))
+        if (mode === 'addCircuit') for (const end of [draft.from, draft.to]) if (end) draftEndpointIds.add(end.slice(2))
         if (mode === 'addLine') for (const id of lineDraftPlaces(doc, lineDraft)) draftEndpointIds.add(id)
-        for (const ep of [draft.from, draft.to]) {
-            if (!ep) continue
-            if (ep.kind === 'junction') draftEndpointIds.add(ep.junctionId)
-            else {
-                const yard = doc.substations.find(s => s.id === ep.substationId)
-                if (yard) draftEndpointIds.add(yard.groupId)
-            }
-        }
 
         // Clicking a line selects its path (parallel circuits overlap); the path panel drills down to circuits.
         const selectedPathId = sel?.collection === 'paths' ? sel.id : sel?.collection === 'circuits' ? doc.circuits.find(c => c.id === sel.id)?.pathId : undefined
@@ -1072,13 +1039,15 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         /** A click on a junction (its area, a connector inside it or its handle): picks it as an end, or selects it. */
         const clickJunction = (jid: string) => {
             if (modeRef.current === 'addLine') changeLineDraft(lineDraftJunctionClick(lineDraftRef.current, jid))
-            else if (modeRef.current === 'addCircuit') addEndpoint({kind: 'junction', junctionId: jid})
-            else if (modeRef.current === 'addPath') addPathEnd({kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: jid})
+            else if (modeRef.current === 'addCircuit') setDraft(d => pickDraftEnd(d, `J:${jid}`))
+            else if (modeRef.current === 'addPath') setPathDraft(d => pickDraftEnd(d, `J:${jid}`))
             else if (modeRef.current === 'select') edRef.current.select({collection: 'junctions', id: jid})
         }
-        /** A right-click on a junction: in "+ Line" mode takes it out of the line again. */
+        /** A right-click on a junction: in "+ Line" mode takes it out of the line again, in "+ Path" / "+ Circuit" mode out of the ends. */
         const rightClickJunction = (jid: string) => {
             if (modeRef.current === 'addLine') setLineDraft(lineDraftRemove(edRef.current.doc, lineDraftRef.current, {junctionId: jid}))
+            else if (modeRef.current === 'addPath') setPathDraft(d => dropDraftEnd(d, `J:${jid}`))
+            else if (modeRef.current === 'addCircuit') setDraft(d => dropDraftEnd(d, `J:${jid}`))
         }
         /** Binds the junction's click and right-click to a layer drawn for it (area, connector, stub). */
         const onJunction = (l: L.Layer, jid: string) => {
@@ -1233,7 +1202,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             // a grouped extension selected or picked shows on its parent's marker
             const members = [g.id, ...[...groupedInto].filter(([, parent]) => parent === g.id).map(([id]) => id)]
             const selectedHere = (sel?.collection === 'substationGroups' || sel?.collection === 'junctions') && members.includes(sel.id)
-            const cls = `site size-${size} ${selectedHere ? 'selected' : ''} ${members.some(id => pickingSite === id || draftEndpointIds.has(id)) ? 'pick' : ''} ${g.planned ? 'planned' : ''}`
+            const cls = `site size-${size} ${selectedHere ? 'selected' : ''} ${members.some(id => draftEndpointIds.has(id)) ? 'pick' : ''} ${g.planned ? 'planned' : ''}`
             const yards = doc.substations.filter(s => s.groupId === g.id)
             // Generation site: an icon-sized "G", then (details only) one lettered badge per generation type.
             const genIcons = (site: SubstationGroupRecord) => site.generation
@@ -1259,7 +1228,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             // the size class scaled for the zoom, but never narrower than the lanes running in (plus the white rim)
             const cover = siteCover.get(g.id)
             const markerPx = Math.round(Math.max(SITE_MARKER_MIN_PX, SITE_MARKER_PX[size] * detail, cover !== undefined ? 2 * cover + 5 : 0))
-            const showSiteLabel = selected || pickingSite === g.id || draftEndpointIds.has(g.id) || (features.labels && !outranked.has(g.id))
+            const showSiteLabel = selected || draftEndpointIds.has(g.id) || (features.labels && !outranked.has(g.id))
             const sizeNote = `<div class="muted">${size} site · ${takeOffs} take-off${takeOffs === 1 ? '' : 's'}, ${bays} bay${bays === 1 ? '' : 's'}</div>`
             const siteJunction = doc.junctions.find(j => j.groupId === g.id)
             const junctionNodes = siteJunction ? doc.connections.filter(c => c.junction.kind === 'TRANSMISSION_JUNCTION' && c.junction.id === siteJunction.id).length : 0
@@ -1277,11 +1246,13 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 : '<div class="muted">No yards yet</div>')
             marker(g.coords, markerPx < 12 ? `${cls} tiny` : cls, '', markerPx, label, () => {
                 if (modeRef.current === 'addLine') changeLineDraft(lineDraftSiteClick(edRef.current.doc, lineDraftRef.current, g.id))
-                else if (modeRef.current === 'addCircuit') setDraft(d => (d.from && d.to) ? d : {...d, pendingSite: g.id})
-                else if (modeRef.current === 'addPath') addPathEnd({kind: ConnectionJunctionKind.SUBSTATION_GROUP, id: g.id})
+                else if (modeRef.current === 'addCircuit') setDraft(d => pickDraftEnd(d, `G:${g.id}`))
+                else if (modeRef.current === 'addPath') setPathDraft(d => pickDraftEnd(d, `G:${g.id}`))
                 else if (modeRef.current === 'select') edRef.current.select({collection: 'substationGroups', id: g.id})
             }, coords => edRef.current.apply(moveSiteOps(edRef.current.doc, g, coords)), summary + sizeNote + junctionNote, showSiteLabel, undefined, () => {
                 if (modeRef.current === 'addLine') setLineDraft(lineDraftRemove(edRef.current.doc, lineDraftRef.current, {groupId: g.id}))
+                else if (modeRef.current === 'addPath') setPathDraft(d => dropDraftEnd(d, `G:${g.id}`))
+                else if (modeRef.current === 'addCircuit') setDraft(d => dropDraftEnd(d, `G:${g.id}`))
             })
         }
         for (const j of doc.junctions) {
@@ -1314,7 +1285,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             fitted.current = true
             setTimeout(() => fitSites(map, edRef.current.doc), 0)
         }
-    }, [ed.doc, ed.selection, mode, draft, wp, zoomTick, features.details, features.labels, features.junctions, features.unusedPaths, features.planned, features.lowVoltage, pathFrom, lineDraft, changeLineDraft, addEndpoint, addPathEnd, onMapClick, setPath, updateWp, editedPath])
+    }, [ed.doc, ed.selection, mode, draft, wp, zoomTick, features.details, features.labels, features.junctions, features.unusedPaths, features.planned, features.lowVoltage, pathDraft, lineDraft, changeLineDraft, onMapClick, setPath, updateWp, editedPath])
 
     /** Pans / zooms the map to a selected record. */
     const locate = useCallback((s: Selection) => {
@@ -1417,8 +1388,12 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         : mode === 'addLine' ? 'New line: click the FROM site, the TO site and the junctions (or sites) it passes in between, in order; right-click one to take it out again. The yards, conductor and circuits are set in the panel. Esc cancels.'
         : mode === 'addSite' ? 'Click on the map where the substation site is.'
         : mode === 'addJunction' ? 'Click on the map where the line junction (tap / splice point) is.'
-        : mode === 'addPath' ? (!pathFrom ? 'New path: click the site or junction where the route starts.' : 'New path: now click the site or junction where it ends (then add waypoints with "Edit waypoints"). Esc cancels.')
-            : mode === 'addCircuit' ? (!draft.from ? 'Click the site (then choose its take-off in the panel) or junction where the circuit starts.' : !draft.to ? 'Now click the site or junction where the circuit ends.' : 'Fill in the circuit details in the panel.')
+        : mode === 'addPath' ? (!pathDraft.from ? 'New path: click the site or junction where the route starts (or pick it in the panel); right-click an end to take it out again. Esc cancels.'
+            : !pathDraft.to ? 'New path: now click the site or junction where it ends; right-click an end to take it out again. Esc cancels.'
+                : 'New path: check the name in the panel and create it (then add waypoints with "Edit waypoints"); right-click an end to take it out again. Esc cancels.')
+            : mode === 'addCircuit' ? (!draft.from ? 'New circuit: click the site or junction where the circuit starts (or pick it in the panel); right-click an end to take it out again. Esc cancels.'
+                : !draft.to ? 'New circuit: now click the site or junction where it ends; right-click an end to take it out again. Esc cancels.'
+                    : 'New circuit: choose the take-offs / junctions and the details in the panel, then create it; right-click an end to take it out again. Esc cancels.')
                 : 'Select mode: click a site, junction or line (selects its path; pick a circuit in the panel). Drag markers to move them.'
 
     return (
@@ -1469,7 +1444,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             </div>
             <div className="side-resizer" onMouseDown={onResizeStart} title="Drag to resize the panel"/>
             <aside className="editor-side">
-                <MapPanels meta={meta} mode={mode} draft={draft} setDraft={setDraft} lineDraft={lineDraft} setLineDraft={setLineDraft} setMode={setMode} navigate={navigate} locate={locate} createDraft={createDraft} setCreateDraft={setCreateDraft} splitNow={() => performSplit()}
+                <MapPanels meta={meta} mode={mode} draft={draft} setDraft={setDraft} lineDraft={lineDraft} setLineDraft={setLineDraft} pathDraft={pathDraft} setPathDraft={setPathDraft} setMode={setMode} navigate={navigate} locate={locate} createDraft={createDraft} setCreateDraft={setCreateDraft} splitNow={() => performSplit()}
                            waypoints={wp ? {state: wp, update: updateWp, remove: deleteWaypoint, setPath, done: () => setMode('select')} : undefined}/>
             </aside>
         </div>

@@ -476,39 +476,63 @@ immediately.
   clicking a line selects its *transmission path* because parallel circuits
   overlap, the path panel lists its circuits with an *Edit* button per
   circuit, and the circuit panel has a back link to the path),
-  **+ Site** / **+ Junction** (click on the map), **+ Path** (click the site
-  or junction where the route starts, then where it ends: an empty path is
-  created, named by the rules, and selected for *Edit waypoints*; `Esc`
-  cancels), **+ Line** (opens the
-  "New line" wizard in the side panel; `Esc` or *Cancel* returns to Select), **+ Circuit**:
-  1. click the first end – a junction is taken directly; for a site the panel
-     offers its *site junction* (existing, or created on the spot and named
-     after the site) and lists its yards and *free* take-offs (or creates a new take-off), because
-     a circuit must leave a substation through a take-off;
-  2. click the second end the same way;
-  3. fill in name (left empty: the generated `<kV>_<path name>_S<n>` (a new circuit is in no line yet; see models.md for the rules),
-     shown as placeholder; ids and path names are generated the same way
-     from the model classes' static naming, see models.md 2.2), template
-     (fills voltage, bundle, conductor), length
-     (pre-filled with the straight-line distance), optional line and the
-     transmission path (a new named path, or an existing one to run in
-     parallel with its circuits: only paths whose two ends are the
-     circuit's two places are offered, a site, its yards and its site
-     junction counting as one place; one that runs the other way is marked so
-     and the circuit follows it, its FROM and TO ends swapped, named from its
-     own ends);
-  4. *Create circuit* writes the circuit and its two TRANSMISSION connections.
-     "Connections at the ends" shows what happens at each end: at a take-off
-     the end joins the take-off's connection (or a new one whose id / name
-     can be set, created at the yard voltage); at a junction a select offers
-     every existing node to join (with its voltage) or "+ new node" with its
-     name and id. Below it the panel previews the **energized voltage** the
-     circuit will get: the voltage of the connection at the FROM end (the TO
-     end fills it in only when FROM has none), with a warning when the two
-     ends sit at different voltages or when it differs from the rated
-     voltage picked above. The same rule applies whenever an end is attached
-     later (*Attach*, "move to" another node): the attach helpers in
-     `linkOps.ts` append an upsert that energizes the circuit at the
+  **+ Site** / **+ Junction** (click on the map), **+ Path** (opens the "New
+  path" panel, `NewPathPanel`: click the site or junction where the route
+  starts, then where it ends, or pick them in its *From* / *To* selects;
+  a right-click on a picked site or junction takes it out again (the ends
+  are a `PathDraft` shared by the map and the panel, highlighted on the
+  map). *Swap from / to* exchanges them; *Name* and *Id* default to the
+  rule ones (`pathNaming`); the straight distance is shown, and paths that
+  already run between the two places are listed with ⚠ (a new one is a
+  duplicate unless it gets its own waypoints). *Create path* adds the
+  empty path and selects it for *Edit waypoints*; `Esc` or *Cancel*
+  returns to Select), **+ Line** (opens the
+  "New line" wizard in the side panel; `Esc` or *Cancel* returns to Select), **+ Circuit**
+  (opens the "New circuit" wizard, `NewCircuitWizard`, built on
+  `circuitWizard.ts` / `buildNewCircuitPlan`):
+  1. the ends: click the site or junction where the circuit starts, then
+     the one where it ends, or pick them in the *From* / *To* selects
+     (sites and line junctions; a site stands for its site junction). A
+     right-click on a picked site or junction takes that end out again, as
+     does the × next to it; the next pick fills the empty end, a place
+     already picked is ignored (the ends are a `CircuitDraft` shared by the
+     map and the panel, picked with the same `pickDraftEnd` /
+     `dropDraftEnd` as **+ Path**), and *Swap from / to* exchanges them
+     with their choices;
+  2. how each end connects: at a site a select lists, per yard (highest
+     voltage first), its *free* take-offs and **New take-off in yard …**
+     (its line name defaults to the rule one toward the other end,
+     `<kV>_<site>_L<n>`, and can be typed), then **Site junction**
+     (existing, or created with the circuit and named after the site); at a
+     junction (or the site junction) a select offers **A node of its own
+     (open end)** or every existing node to join, with its ends and
+     voltage. A new connection there (a node of its own, or the one a
+     take-off starts) takes an optional name and id. Nothing is picked by
+     default: at a site the yard at the rated voltage (else at a voltage the
+     other site has too, else the highest) is used, through a free take-off
+     it already has toward the other site, else a new one
+     (`defaultCircuitConnect`); the site junction when the site has no
+     yards; at a junction a node of its own. Each end shows what it
+     connects to and at which voltage;
+  3. the circuit: name and id (left empty: the rule `<kV>_<path name>_S<n>`
+     shown as placeholder, see models.md 2.2), template (fills voltage,
+     bundle, conductor), rated voltage (left empty: the one the ends
+     suggest, `suggestedCircuitVoltage`), length (pre-filled with the
+     straight-line distance), **energized voltage** (left empty: the
+     connections', the FROM end first; the options mark the FROM end's,
+     the TO end's and the rated voltage so a take-off voltage is one pick,
+     and 0V marks a circuit not in service) and the transmission path: a
+     path that already runs between the two places (either way; the best
+     one by default, one that runs the other way makes the circuit follow
+     it, its FROM and TO swapped) or **New path** with its name and id;
+  4. any take-off voltage is accepted; ⚠ warnings name ends at different
+     voltages, an open end, an energized voltage different from an end or
+     from the rated one, and both ends in one site. *Create circuit* writes
+     everything in one journaled step (site junctions, take-offs, the path,
+     the circuit and its two TRANSMISSION connections; a new node gets the
+     energized voltage) and selects the circuit; the button lists what else
+     it creates. When an end is attached later (*Attach*, "move to" another
+     node) the attach helpers in `linkOps.ts` energize the circuit at the
      connection voltage (`energizeCircuitOps`).
 * **Split** mode (toolbar button, for the selected path or circuit): the
   panel offers a *Junction* select with every existing junction (site

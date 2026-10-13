@@ -23,16 +23,16 @@ export interface WaypointEdit {
     adding: 'before' | 'after' | 'append' | null
 }
 
-export type Endpoint =
-    | { kind: 'takeOff'; takeOffId: string; substationId: string }
-    | { kind: 'junction'; junctionId: string }
-
+/**
+ * The "+ Circuit" wizard's ends, shared with map clicks: `G:<site id>` or `J:<junction id>` ('' = not chosen yet);
+ * how each end connects there (take-off, site junction, node) is chosen in the panel.
+ */
 export interface CircuitDraft {
-    from?: Endpoint
-    to?: Endpoint
-    /** A site was clicked while adding a circuit: the panel asks which yard / take-off to use. */
-    pendingSite?: string
+    from: string
+    to: string
 }
+
+export const EMPTY_CIRCUIT_DRAFT: CircuitDraft = {from: '', to: ''}
 
 /**
  * The stops of the "+ Line" wizard, shared by its panel and map clicks: the two ends (`Y:<yard id>`, `J:<junction id>`
@@ -105,6 +105,35 @@ export function lineDraftRemove(doc: NetworkDocument, d: LineDraft, place: { gro
     if (id && lineEndPlace(doc, d.from) === id) return {...d, from: ''}
     if (id && lineEndPlace(doc, d.to) === id) return {...d, to: ''}
     return {...d, vias: d.vias.filter(v => v !== (place.groupId ? `G:${place.groupId}` : `J:${place.junctionId}`))}
+}
+
+/**
+ * The "+ Path" panel's draft, shared with map clicks: the ends (`G:<site id>` or `J:<junction id>`; '' = not chosen
+ * yet) and the optional name and id (the rule ones when empty).
+ */
+export interface PathDraft {
+    from: string
+    to: string
+    name: string
+    id: string
+}
+
+export const EMPTY_PATH_DRAFT: PathDraft = {from: '', to: '', name: '', id: ''}
+
+/**
+ * A site (`G:<id>`) or junction (`J:<id>`) clicked in "+ Path" or "+ Circuit" mode: it fills the FROM end, else the
+ * TO end; an end already picked, or a third place, is ignored.
+ */
+export function pickDraftEnd<D extends { from: string; to: string }>(d: D, place: string): D {
+    if (d.from === place || d.to === place) return d
+    if (!d.from) return {...d, from: place}
+    if (!d.to) return {...d, to: place}
+    return d
+}
+
+/** A site or junction right-clicked in "+ Path" or "+ Circuit" mode: taken out again when it is an end. */
+export function dropDraftEnd<D extends { from: string; to: string }>(d: D, place: string): D {
+    return d.from === place ? {...d, from: ''} : d.to === place ? {...d, to: ''} : d
 }
 
 /** Where a circuit end is located on the map, following its TRANSMISSION connection. */

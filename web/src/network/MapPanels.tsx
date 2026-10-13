@@ -25,7 +25,7 @@ import {
     TransmissionPathRecord,
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, NetworkOp, pickId, uniqueId} from '@shared/network/ops'
-import {circuitNaming, junctionConnectionNaming, junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffConnectionNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
+import {junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
 import {buildCircuitGraph, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits, proposalsForCircuit} from '@shared/network/lines'
 import {yardNameForVoltage} from '@shared/models/naming'
 import {GENERATION_BADGES, GENERATION_LABELS, GenerationType} from '@shared/models/generation'
@@ -34,7 +34,8 @@ import {buildNewLinePlan, NewLineLegSpec, NewLineSpec, NewLineVia} from './lineW
 import {buildJoinCircuitsPlan, joinableReason} from './joinCircuits'
 import {buildBypassPlan, passThroughs} from './bypassJunction'
 import {buildMergeAllDuplicatesPlan, buildMergePathsPlan, duplicatePathGroups, duplicatesOf, runsReversed} from './mergePaths'
-import {buildRouteViaPlan, RouteVia, routeViaPathChoices, runVoltage, yardChoices} from './routeVia'
+import {buildRouteViaPlan, pathsBetween, RouteVia, routeViaPathChoices, runVoltage, samePlace, yardChoices} from './routeVia'
+import {buildNewCircuitPlan, circuitPlaceOptions, NewCircuitConnect, NewCircuitEndPlan, NewCircuitSpec, suggestedCircuitVoltage, yardsOf} from './circuitWizard'
 import {buildRouteEndPlan, freedTakeOffs, routeEndRoutes, RouteEndRoute, routeKey, RouteTarget} from './routeEnd'
 import {TowerSlot, towerSlots} from './towerLayout'
 import {confirmDeleteLines} from './deleteLines'
@@ -54,12 +55,10 @@ import {
     attachCircuitEndToTakeOffOps,
     connectionsAtJunction,
     moveCircuitEndOps,
-    takeOffConnection,
     attachPathEndOps,
     circuitEndConnection,
     circuitEndRef,
     circuitWarnings,
-    connectionVoltage,
     detachCircuitEndOps,
     energizedMismatches,
     detachPathEndOps,
@@ -74,7 +73,7 @@ import {
 } from './linkOps'
 import {describeNode} from './SubstationPanels'
 import {nextJunctionConnectionName} from '@shared/network/migrate'
-import {CircuitDraft, CreateDraft, Endpoint, endLocation, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, plannedVoltageColor, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
+import {CircuitDraft, CreateDraft, endLocation, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, plannedVoltageColor, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
 import {JunctionSymbol, VoltageSymbol} from './symbols'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 
@@ -96,6 +95,9 @@ interface MapPanelsProps {
     /** "+ Line" mode: the wizard's stops, shared with map clicks. */
     lineDraft: LineDraft
     setLineDraft: Dispatch<SetStateAction<LineDraft>>
+    /** "+ Path" mode: the new path's ends, name and id, shared with map clicks. */
+    pathDraft: PathDraft
+    setPathDraft: Dispatch<SetStateAction<PathDraft>>
 }
 
 export interface WaypointTools {
@@ -157,13 +159,14 @@ function VoltageSwatch({circuit}: { circuit: TransmissionCircuitRecord }) {
 export function MapPanels(props: MapPanelsProps) {
     const ed = useNetworkEditor()
     const {mode, draft} = props
-    if (mode === 'addCircuit') return <CircuitDraftPanel {...props}/>
+    if (mode === 'addCircuit') return <NewCircuitWizard {...props}/>
     if (mode === 'addLine') return (
         <div className="panel">
             <Header title="New line"/>
             <NewLineWizard meta={props.meta} locate={props.locate} draft={props.lineDraft} setDraft={props.setLineDraft} onDone={() => props.setMode('select')}/>
         </div>
     )
+    if (mode === 'addPath') return <NewPathPanel draft={props.pathDraft} setDraft={props.setPathDraft} setMode={props.setMode} locate={props.locate}/>
     if ((mode === 'addSite' || mode === 'addJunction' || mode === 'splitPath') && props.createDraft && props.setCreateDraft) return <CreatePanel kind={mode} draft={props.createDraft} setDraft={props.setCreateDraft} cancel={() => props.setMode('select')} splitNow={props.splitNow}/>
     if (mode === 'editWaypoints' && props.waypoints) return <WaypointPanel tools={props.waypoints}/>
     const sel = ed.selection
@@ -256,6 +259,81 @@ function CreatePanel({kind, draft, setDraft, cancel, splitNow}: { kind: 'addSite
                     <button type="button" className="primary small" disabled={!splitNow || !splitPath} onClick={splitNow}>Split at {chosen.name ?? chosen.id}</button>
                 </div>
             )}
+        </div>
+    )
+}
+
+/**
+ * "+ Path": a new route between two sites or junctions, without circuits. The ends are picked here or by clicking
+ * sites and junctions on the map (the FROM end first, then the TO end; a right-click takes one out again, see
+ * `PathDraft`); name and id default to the rule ones. Paths already running between the two places are listed: a new
+ * one is a duplicate unless it gets its own waypoints. The new path is selected, ready for "Edit waypoints".
+ */
+function NewPathPanel({draft, setDraft, setMode, locate}: { draft: PathDraft; setDraft: Dispatch<SetStateAction<PathDraft>>; setMode: (m: Mode) => void; locate?: (sel: Selection) => void }) {
+    const ed = useNetworkEditor()
+    const doc = ed.doc
+    const options = useEndOptions()
+    /** A draft end as a path end: a site junction stands for its site. */
+    const endRef = (v: string) => {
+        const r = decodeRef(v)
+        return r && (pathEndOf(doc, r) ?? r)
+    }
+    const from = endRef(draft.from), to = endRef(draft.to)
+    const same = !!from && !!to && samePlace(doc, from, to)
+    const auto = from && to && !same ? pathNaming(doc, from, to) : undefined
+    const existing = auto ? pathsBetween(doc, from, to) : []
+    const a = locationOfRef(doc, from), b = locationOfRef(doc, to)
+    const km = a && b && !same ? haversineKm(a.coords, b.coords) : undefined
+    const idOk = newIdOk(doc, draft.id)
+    const set = (patch: Partial<PathDraft>) => setDraft(d => ({...d, ...patch}))
+    const pick = (sel: Selection) => {
+        setMode('select')
+        ed.select(sel)
+        locate?.(sel)
+    }
+    const create = () => {
+        if (!from || !to || same || !idOk) return
+        const naming = pathNaming(doc, from, to, draft.name)
+        const record: TransmissionPathRecord = {id: pickId(doc, draft.id, naming.id), name: naming.name, from, to, waypoints: []}
+        if (ed.apply([{type: 'upsert', collection: 'paths', record}])) pick({collection: 'paths', id: record.id})
+    }
+    return (
+        <div className="panel">
+            <div className="panel-header">
+                <h3 style={{margin: 0}}>New path</h3>
+                <span className="spacer"/>
+                <button type="button" className="small" onClick={() => setMode('select')}>Cancel</button>
+            </div>
+            <p className="small muted">A route between two sites or junctions, without circuits. Pick the ends here, or click on the map the site or junction where it starts, then the one where it ends (right-click one to take it out again). Add its waypoints with "Edit waypoints" afterwards.</p>
+            <div className="form-grid" style={{gridTemplateColumns: '1fr'}}>
+                <SelectField label="From" value={draft.from || undefined} options={options.filter(o => o.value !== draft.to)} allowEmpty emptyLabel="Click on the map, or choose a site or junction…" onChange={v => set({from: v ?? ''})}/>
+                <SelectField label="To" value={draft.to || undefined} options={options.filter(o => o.value !== draft.from)} allowEmpty emptyLabel="Click on the map, or choose a site or junction…" onChange={v => set({to: v ?? ''})}/>
+                <div className="toolbar small">
+                    <button type="button" className="small" disabled={!draft.from && !draft.to} onClick={() => set({from: draft.to, to: draft.from})} title="Exchange the FROM and TO ends">Swap from / to</button>
+                    {km !== undefined && <span className="muted">{km.toFixed(1)} km in a straight line</span>}
+                </div>
+                <TextField label="Name" value={draft.name} onChange={v => set({name: v})} placeholder={auto?.name ?? 'from the ends'} hint="The rule name (<from>-<to>, numbered) when empty"/>
+                <NewIdField value={draft.id} onChange={v => set({id: v})} auto={auto?.id}/>
+            </div>
+            {same && <p className="small"><span className="warn-dot">⚠ Both ends are the same place.</span></p>}
+            {existing.length > 0 && (
+                <div className="small" style={{marginTop: 8}}>
+                    <span className="warn-dot">⚠ Already between these ends:</span>
+                    {existing.map(p => (
+                        <div key={p.id} style={{marginTop: 2}}>
+                            <a href="#" onClick={e => {
+                                e.preventDefault()
+                                pick({collection: 'paths', id: p.id})
+                            }}><strong>{p.name}</strong></a>
+                            <span className="muted"> · {refLabel(doc, p.from)} → {refLabel(doc, p.to)} · {doc.circuits.filter(c => c.pathId === p.id).length} circuits · {p.waypoints.length} pts</span>
+                        </div>
+                    ))}
+                    <div className="muted" style={{marginTop: 2}}>A new path here is a duplicate unless it gets its own waypoints (a parallel line on another route).</div>
+                </div>
+            )}
+            <div className="toolbar" style={{marginTop: 8}}>
+                <button type="button" className="primary small" disabled={!from || !to || same || !idOk} onClick={create}>Create path</button>
+            </div>
         </div>
     )
 }
@@ -2623,198 +2701,61 @@ function TransmissionConnectionPanel({record}: { record: ConnectionRecord }) {
 
 /* ---------- circuit creation wizard ---------- */
 
-function endpointLabel(ed: ReturnType<typeof useNetworkEditor>, ep: Endpoint): string {
-    if (ep.kind === 'junction') {
-        const j = ed.doc.junctions.find(x => x.id === ep.junctionId)
-        return `Junction ${j?.name ?? ep.junctionId}`
-    }
-    const t = ed.doc.takeOffs.find(x => x.id === ep.takeOffId)
-    const yard = ed.doc.substations.find(s => s.id === ep.substationId)
-    const group = yard && ed.doc.substationGroups.find(g => g.id === yard.groupId)
-    return `${group?.groupName ?? ''} ${yard?.yardName ?? ''} · take-off ${t?.lineName ?? ep.takeOffId}`
-}
-
-function endpointCoords(ed: ReturnType<typeof useNetworkEditor>, ep: Endpoint) {
-    if (ep.kind === 'junction') return ed.doc.junctions.find(x => x.id === ep.junctionId)?.coords
-    const yard = ed.doc.substations.find(s => s.id === ep.substationId)
-    return yard ? ed.doc.substationGroups.find(g => g.id === yard.groupId)?.coords : undefined
-}
-
-function CircuitDraftPanel({meta, draft, setDraft, setMode}: MapPanelsProps) {
-    const ed = useNetworkEditor()
-    const site = draft.pendingSite ? ed.doc.substationGroups.find(g => g.id === draft.pendingSite) : undefined
-    const yards = site ? ed.doc.substations.filter(s => s.groupId === site.id).sort((a, b) => a.yardName.localeCompare(b.yardName)) : []
-    const siteJunction = site ? siteJunctionOf(ed.doc, site.id) : undefined
-    const [newYard, setNewYard] = useState('')
-    const [newName, setNewName] = useState('')
-
-    const usedTakeOffs = new Set(ed.doc.connections.filter(c => c.scope === ConnectionScope.TRANSMISSION).flatMap(c => c.nodes.filter(n => n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF).map(n => n.id)))
-    const choose = (ep: Endpoint) => setDraft(!draft.from ? {from: ep} : {...draft, to: ep, pendingSite: undefined})
-    const createTakeOff = () => {
-        const yard = yards.find(y => y.id === (newYard || yards[0]?.id))
-        if (!yard || !newName.trim()) return
-        const rec: SubstationTakeOffRecord = {id: uniqueId(ed.doc, takeOffNaming(ed.doc, yard.id, newName.trim()).id), substationId: yard.id, lineName: newName.trim(), takeOffColumn: true}
-        if (ed.apply([{type: 'upsert', collection: 'takeOffs', record: rec}])) {
-            setNewName('')
-            choose({kind: 'takeOff', takeOffId: rec.id, substationId: yard.id})
-        }
-    }
-
-    return (
-        <>
-            <div className="panel">
-                <Header title="New circuit"/>
-                <dl className="kv small">
-                    <dt>From</dt>
-                    <dd>{draft.from ? endpointLabel(ed, draft.from) : <span className="muted">click a site or junction</span>}</dd>
-                    <dt>To</dt>
-                    <dd>{draft.to ? endpointLabel(ed, draft.to) : draft.from ? <span className="muted">click a site or junction</span> : '–'}</dd>
-                </dl>
-                <div className="toolbar" style={{marginTop: 8}}>
-                    <button type="button" className="small" onClick={() => setDraft({})} disabled={!draft.from && !draft.pendingSite}>Restart</button>
-                    <button type="button" className="small" onClick={() => setMode('select')}>Cancel</button>
-                </div>
-            </div>
-            {site && (
-                <div className="panel">
-                    <h3>Junction at {site.groupName}</h3>
-                    <p className="small muted">A circuit that is joined or teed at the site without entering a yard ends in the site junction.</p>
-                    <div className="toolbar">
-                        {siteJunction
-                            ? <button type="button" className="small" onClick={() => choose({kind: 'junction', junctionId: siteJunction.id})}>Use junction {siteJunction.name ?? siteJunction.id}</button>
-                            : <button type="button" className="small" title="Create the site junction (named after the site) and use it as this end" onClick={() => {
-                                const rec = newSiteJunctionRecord(ed.doc, site)
-                                if (ed.apply([{type: 'upsert', collection: 'junctions', record: rec}])) choose({kind: 'junction', junctionId: rec.id})
-                            }}>Create site junction & use</button>}
-                    </div>
-                </div>
-            )}
-            {site && (
-                <div className="panel">
-                    <h3>Take-off at {site.groupName}</h3>
-                    <p className="small muted">A circuit leaves a substation through a take-off. Pick a free one or create it.</p>
-                    {yards.length === 0 && <p className="small" style={{color: 'var(--danger)'}}>This site has no yards yet. Add one in the site panel first.</p>}
-                    {yards.map(y => {
-                        const takeOffs = ed.doc.takeOffs.filter(t => t.substationId === y.id)
-                        return (
-                            <div key={y.id} style={{marginBottom: 8}}>
-                                <strong className="small">{y.yardName} <span className="muted">{y.voltage}</span></strong>
-                                <div className="toolbar" style={{marginTop: 4}}>
-                                    {takeOffs.length === 0 && <span className="small muted">no take-offs</span>}
-                                    {takeOffs.map(t => {
-                                        const used = usedTakeOffs.has(t.id)
-                                        return <button key={t.id} type="button" className="small" disabled={used} title={used ? 'already connected' : 'use this take-off'}
-                                                       onClick={() => choose({kind: 'takeOff', takeOffId: t.id, substationId: y.id})}>{t.lineName}</button>
-                                    })}
-                                </div>
-                            </div>
-                        )
-                    })}
-                    {yards.length > 0 && (
-                        <div className="toolbar" style={{marginTop: 8}}>
-                            <select value={newYard || yards[0].id} onChange={e => setNewYard(e.target.value)}>
-                                {yards.map(y => <option key={y.id} value={y.id}>{y.yardName}</option>)}
-                            </select>
-                            <input type="text" value={newName} placeholder="New take-off name" style={{width: 150}} onChange={e => setNewName(e.target.value.toUpperCase())} onKeyDown={e => e.key === 'Enter' && createTakeOff()}/>
-                            <button type="button" className="small primary" onClick={createTakeOff} disabled={!newName.trim()}>Create & use</button>
-                        </div>
-                    )}
-                </div>
-            )}
-            {draft.from && draft.to && <NewCircuitForm meta={meta} from={draft.from} to={draft.to} onDone={() => setDraft({})}/>}
-        </>
-    )
-}
-
-interface EndChoice {
-    /** '' = default (join the only node / create), an id = join that node, '__new' = create a new node. */
+/** Per end of the new circuit: how it connects (`NewCircuitConnect`; unset = the default) and the new connection's name / id. */
+interface CircuitEndChoice {
+    connect?: NewCircuitConnect
+    connectionName: string
     connectionId: string
-    newName: string
-    newId: string
 }
 
-/** Per end of a new circuit: at a junction pick the node to join or create one; at a take-off show the connection that will be used. */
-function EndConnectionChoice({end, ep, choice, set}: { end: CircuitEnd; ep: Endpoint; choice: EndChoice; set: (p: Partial<EndChoice>) => void }) {
-    const ed = useNetworkEditor()
-    const label = end === CIRCUIT_END_FROM ? 'From' : 'To'
-    if (ep.kind === 'takeOff') {
-        const existing = takeOffConnection(ed.doc, ep.takeOffId)
-        const takeOff = ed.doc.takeOffs.find(t => t.id === ep.takeOffId)
-        const yardVoltage = ed.doc.substations.find(s => s.id === ep.substationId)?.voltage
-        return (
-            <div className="small" style={{marginBottom: 8}}>
-                <strong>{label}</strong> · take-off {takeOff?.lineName ?? ep.takeOffId}:{' '}
-                {existing ? <>joins its connection <span className="badge">{existing.name ?? existing.id}</span> <span className="muted">at {connectionVoltage(ed.doc, existing) ?? '–'}</span></> : (
-                    <span className="toolbar" style={{display: 'inline-flex'}}>
-                        new connection <span className="muted">at {yardVoltage ?? '–'}</span>
-                        <NewIdField compact value={choice.newId} onChange={v => set({newId: v})} auto={takeOffConnectionNaming(ed.doc, ep.takeOffId).id}/>
-                        <input type="text" value={choice.newName} placeholder="name (optional)" style={{width: 130}} onChange={e => set({newName: e.target.value})}/>
-                    </span>
-                )}
-            </div>
-        )
-    }
-    const nodes = connectionsAtJunction(ed.doc, ep.junctionId)
-    const j = ed.doc.junctions.find(x => x.id === ep.junctionId)
-    const creating = choice.connectionId === '__new' || nodes.length === 0
-    return (
-        <div className="small" style={{marginBottom: 8}}>
-            <strong>{label}</strong> · junction {j?.name ?? ep.junctionId}:{' '}
-            <span className="toolbar" style={{display: 'inline-flex'}}>
-                {nodes.length > 0 && (
-                    <select value={choice.connectionId} onChange={e => set({connectionId: e.target.value})}>
-                        {nodes.length === 1 && <option value="">join {nodes[0].name ?? nodes[0].id}</option>}
-                        {nodes.length > 1 && <option value="">choose a node…</option>}
-                        {nodes.map(n => <option key={n.id} value={n.id}>join {n.name ?? n.id} ({n.nodes.length} ends{n.voltage ? `, ${n.voltage}` : ''})</option>)}
-                        <option value="__new">+ new node</option>
-                    </select>
-                )}
-                {creating && (
-                    <>
-                        {nodes.length === 0 && <span>new node</span>}
-                        <input type="text" value={choice.newName} placeholder={nextJunctionConnectionName(ed.doc, ep.junctionId)} style={{width: 130}} onChange={e => set({newName: e.target.value})}/>
-                        <NewIdField compact value={choice.newId} onChange={v => set({newId: v})} auto={junctionConnectionNaming(ed.doc, ep.junctionId, choice.newName).id}/>
-                    </>
-                )}
-            </span>
-        </div>
-    )
-}
+const EMPTY_END_CHOICE: CircuitEndChoice = {connectionName: '', connectionId: ''}
 
-function NewCircuitForm({meta, from, to, onDone}: { meta: MetaResponse; from: Endpoint; to: Endpoint; onDone: () => void }) {
+/**
+ * "+ Circuit" wizard (`buildNewCircuitPlan`): the two ends are picked here or by clicking sites and junctions on the map
+ * (`CircuitDraft`; a right-click takes one out). Each end then connects: at a site through a free take-off of any yard,
+ * a new take-off or the site junction (created when missing); at a junction by joining a node or starting one of its
+ * own. The circuit fields, the path (an existing one between the places by default) and the energized voltage (the
+ * connections' unless picked) follow, with warnings for ends at different voltages, open ends and energized ≠ rated.
+ * One journaled step creates everything; the new circuit is selected.
+ */
+function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsProps) {
     const ed = useNetworkEditor()
+    const doc = ed.doc
     const {templates} = useTemplates(TemplateKind.TRANSMISSION_CIRCUIT)
-    const a = endpointCoords(ed, from), b = endpointCoords(ed, to)
-    const km = a && b ? Number(haversineKm(a, b).toFixed(2)) : undefined
-    const endpointRef = (ep: Endpoint): ConnectionJunctionRef => ep.kind === 'takeOff' ? {kind: ConnectionJunctionKind.SUBSTATION, id: ep.substationId} : {kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: ep.junctionId}
-    const fromRef = endpointRef(from), toRef = endpointRef(to)
-    /** Typed name; empty = the generated `<kV>_<site>_<site>_S<n>`. */
+    /** Choices per place (`G:` / `J:` key): they follow an end when the ends are swapped; a newly picked place starts fresh. */
+    const [choices, setChoices] = useState<Record<string, CircuitEndChoice>>({})
+    const choiceAt = (place: string) => choices[place] ?? EMPTY_END_CHOICE
+    const setChoice = (place: string, patch: Partial<CircuitEndChoice>) => setChoices(c => ({...c, [place]: {...(c[place] ?? EMPTY_END_CHOICE), ...patch}}))
     const [name, setName] = useState('')
+    const [circuitId, setCircuitId] = useState('')
     const [templateId, setTemplateId] = useState<string | undefined>()
     const [voltage, setVoltage] = useState<string | undefined>()
     const [bundle, setBundle] = useState<number | undefined>()
     const [conductor, setConductor] = useState<TransmissionConductor | undefined>(genericConductor)
-    const [lengthKm, setLengthKm] = useState<number | undefined>(km)
-    const [pathId, setPathId] = useState<string>('')  // '' = new path, else an existing path between the two ends
+    const [lengthKm, setLengthKm] = useState<number | undefined>()
+    const [lengthTouched, setLengthTouched] = useState(false)
+    /** An existing path's id, NEW_PATH, or unset = the best path between the places when there is one. */
+    const [pathPick, setPathPick] = useState<string | undefined>()
     const [pathName, setPathName] = useState('')
-    const [circuitId, setCircuitId] = useState('')
     const [newPathId, setNewPathId] = useState('')
-    const [endChoice, setEndChoice] = useState<Record<CircuitEnd, EndChoice>>({[CIRCUIT_END_FROM]: {connectionId: '', newName: '', newId: ''}, [CIRCUIT_END_TO]: {connectionId: '', newName: '', newId: ''}})
-    const setEnd = (end: CircuitEnd, patch: Partial<EndChoice>) => setEndChoice(s => ({...s, [end]: {...s[end], ...patch}}))
-    // Existing paths the circuit can run on: their two ends are the circuit's two places (a site, its yards and its site
-    // junction count as one), either way round; on one that runs the other way the circuit follows it (its FROM and TO swap).
-    const runs = (p: TransmissionPathRecord, a: ConnectionJunctionRef, b: ConnectionJunctionRef) => !!p.from && !!p.to && atPathEnd(ed.doc, a, p.from) && atPathEnd(ed.doc, b, p.to)
-    const pathChoices = ed.doc.paths.filter(p => runs(p, fromRef, toRef) || runs(p, toRef, fromRef))
-    const chosenPath = pathId ? pathChoices.find(p => p.id === pathId) : undefined
-    const reversed = !!chosenPath && !runs(chosenPath, fromRef, toRef)
-    /** The circuit's FROM and TO ends: the two picked, swapped on a path that runs the other way. */
-    const [firstEp, secondEp] = reversed ? [to, from] : [from, to]
-    const [firstRef, secondRef] = reversed ? [toRef, fromRef] : [fromRef, toRef]
-    const pathMismatch = pathId && !chosenPath ? 'That path no longer runs between the two ends; choose another or create a new path.' : undefined
-    // Generated names / ids (the model classes' static naming), used whenever the fields are left empty.
-    const autoPath = pathNaming(ed.doc, fromRef, toRef)
-    const autoCircuit = circuitNaming(ed.doc, {pathId: chosenPath?.id, pathName: chosenPath ? undefined : pathName.trim() || autoPath.name, voltage, from: firstRef, to: secondRef, name})
-    const circuitName = name.trim() || autoCircuit.name
+    /** Energized voltage; unset = the connections' at the ends. */
+    const [energized, setEnergized] = useState<string | undefined>()
+
+    const fromSpec = {place: draft.from, ...choiceAt(draft.from)}, toSpec = {place: draft.to, ...choiceAt(draft.to)}
+    /** The rated voltage used while none is picked (from the ends' connections). */
+    const suggestedVoltage = suggestedCircuitVoltage(doc, fromSpec, toSpec)
+    const spec: NewCircuitSpec = {
+        from: fromSpec, to: toSpec,
+        name, id: circuitId, voltage: (voltage as TransmissionVoltage | undefined) ?? suggestedVoltage, bundle, conductor, lengthKm,
+        pathId: pathPick && pathPick !== NEW_PATH ? pathPick : undefined, newPath: pathPick === NEW_PATH, newPathName: pathName, newPathId,
+        energizedVoltage: energized as TransmissionVoltage | undefined,
+    }
+    const plan = buildNewCircuitPlan(doc, spec)
+    const km = plan.km
+    // Pre-fill the length with the straight-line distance until the user edits it.
+    useEffect(() => {
+        if (!lengthTouched) setLengthKm(km)
+    }, [km, lengthTouched])
 
     const pickTemplate = async (id: string | undefined) => {
         setTemplateId(id)
@@ -2830,101 +2771,152 @@ function NewCircuitForm({meta, from, to, onDone}: { meta: MetaResponse; from: En
         }
     }
 
-    /**
-     * The circuit and the ops "Create circuit" writes. Also run on every render
-     * to preview the energized voltage, which the attach helpers take from the
-     * connections at the ends (the FROM end decides when the two differ).
-     */
-    const plan = () => {
-        const circuit: TransmissionCircuitRecord = {
-            id: pickId(ed.doc, circuitId, autoCircuit.id),
-            name: circuitName,
-            voltage: voltage as TransmissionVoltage | undefined,
-            bundle,
-            conductor,
-            lengthKm,
-            pathId: chosenPath?.id,
-        }
-        const ops: NetworkOp[] = []
-        if (!pathId) {
-            const route: TransmissionPathRecord = {id: pickId(ed.doc, newPathId, autoPath.id), name: pathName.trim() || autoPath.name, from: pathEndOf(ed.doc, fromRef) ?? fromRef, to: pathEndOf(ed.doc, toRef) ?? toRef, waypoints: []}
-            ops.push({type: 'upsert', collection: 'paths', record: route})
-            circuit.pathId = route.id
-        }
-        // Attach the ends; each helper works against the document as it will be after the previous ops, the new circuit included.
-        let probe: NetworkDocument = {...ed.doc, circuits: [...ed.doc.circuits, circuit]}
-        const attach = (ep: Endpoint, end: CircuitEnd) => {
-            // the panel's choices are per picked end (FROM = the first one picked), whichever circuit end it becomes
-            const choice = endChoice[ep === from ? CIRCUIT_END_FROM : CIRCUIT_END_TO]
-            const add = ep.kind === 'takeOff'
-                ? attachCircuitEndToTakeOffOps(probe, circuit.id, end, ep.takeOffId, {newId: choice.newId, newName: choice.newName})
-                : attachCircuitEndToJunctionOps(probe, circuit.id, end, ep.junctionId, circuit.voltage, choice.connectionId === '__new' || !connectionsAtJunction(probe, ep.junctionId).length
-                    ? {forceNew: true, newId: choice.newId, newName: choice.newName}
-                    : {connectionId: choice.connectionId || undefined})
-            for (const o of add) {
-                if (o.type === 'upsert' && o.collection === 'circuits') {
-                    // the helper energized the circuit at the connection voltage: fold it into the record instead of a second upsert
-                    const v = (o.record as TransmissionCircuitRecord).energizedVoltage
-                    if (v && !circuit.energizedVoltage) circuit.energizedVoltage = v
-                    continue
-                }
-                ops.push(o)
-                if (o.type === 'upsert' && o.collection === 'connections') probe = {...probe, connections: [...probe.connections.filter(c => c.id !== o.record.id), o.record as ConnectionRecord]}
-            }
-        }
-        attach(firstEp, CIRCUIT_END_FROM)
-        attach(secondEp, CIRCUIT_END_TO)
-        ops.push({type: 'upsert', collection: 'circuits', record: circuit})
-        return {circuit, ops, mismatch: energizedMismatches(probe, circuit.id, circuit.energizedVoltage)}
-    }
-    const planned = circuitName ? plan() : undefined
-
     const create = () => {
-        if (!circuitName) return
-        const {circuit, ops} = plan()
-        if (ed.apply(ops)) {
-            ed.select({collection: 'circuits', id: circuit.id})
-            onDone()
-        }
+        if (plan.errors.length || !plan.circuit) return
+        if (!ed.apply(plan.ops)) return
+        const sel: Selection = {collection: 'circuits', id: plan.circuit.id}
+        setMode('select')
+        ed.select(sel)
+        locate?.(sel)
     }
+
+    const bothEnds = !!draft.from && !!draft.to
+    const problems = plan.errors.filter(e => !e.startsWith('pick where'))
+    const newPath = bothEnds && (plan.pathChoices.length === 0 || pathPick === NEW_PATH)
+    /** Marks a voltage option with the ends / rating it matches, so the take-off voltage is easy to pick. */
+    const voltageOptions = meta.enums.transmissionVoltage.map(v => ({
+        value: v,
+        label: [enumLabel(v), plan.from.voltage === v ? 'FROM end' : '', plan.to.voltage === v ? 'TO end' : '', spec.voltage === v ? 'rated' : ''].filter(Boolean).join(' · '),
+    }))
+    const creates = [
+        ...[plan.from, plan.to].flatMap(e => [e.junctionCreated && e.junction ? `site junction ${e.junction.name ?? e.junction.id}` : '', e.takeOffCreated && e.takeOff ? `take-off ${e.takeOff.lineName} (${e.yard?.yardName ?? ''})` : '']),
+        plan.pathCreated && plan.path ? `path ${plan.path.name}` : '',
+    ].filter(Boolean)
 
     return (
         <div className="panel">
-            <h3>Circuit details</h3>
+            <div className="panel-header">
+                <h3 style={{margin: 0}}>New circuit</h3>
+                <span className="spacer"/>
+                <button type="button" className="small" onClick={() => setMode('select')}>Cancel</button>
+            </div>
+            <p className="small muted">Pick the two ends here, or click on the map the site or junction where the circuit starts, then the one where it ends (right-click one to take it out again). At a site the circuit leaves through a take-off (a free one of any yard, or a new one) or ends at the site junction; at a junction it joins a node or starts one of its own. Everything is created in one step.</p>
+            <div className="form-grid" style={{gridTemplateColumns: '1fr'}}>
+                <CircuitEndField label="From" place={draft.from} other={draft.to} end={plan.from} choice={choiceAt(draft.from)}
+                                 setPlace={v => setDraft({...draft, from: v})} setChoice={p => setChoice(draft.from, p)}/>
+                <CircuitEndField label="To" place={draft.to} other={draft.from} end={plan.to} choice={choiceAt(draft.to)}
+                                 setPlace={v => setDraft({...draft, to: v})} setChoice={p => setChoice(draft.to, p)}/>
+                <div className="toolbar small">
+                    <button type="button" className="small" disabled={!draft.from && !draft.to} onClick={() => setDraft({from: draft.to, to: draft.from})} title="Exchange the FROM and TO ends (with their take-off / node choices)">Swap from / to</button>
+                    {km !== undefined && <span className="muted">{km.toFixed(1)} km in a straight line</span>}
+                </div>
+            </div>
+            <h4 className="muted" style={{marginTop: 12}}>Circuit</h4>
             <div className="form-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
-                <TextField label="Name" value={name} onChange={setName} placeholder={autoCircuit.name} hint="Left empty: generated from the voltage and the two ends" className="span-all"/>
-                <NewIdField value={circuitId} onChange={setCircuitId} auto={uniqueId(ed.doc, autoCircuit.id)} className="span-all"/>
+                <TextField label="Name" value={name} onChange={setName} placeholder={plan.autoCircuit?.name ?? 'from the voltage and the path'} hint="Left empty: the rule name (<kV>_<path>_S<n>)" className="span-all"/>
+                <NewIdField value={circuitId} onChange={setCircuitId} auto={plan.autoCircuit ? uniqueId(doc, plan.autoCircuit.id) : undefined} className="span-all"/>
                 <SelectField label="Template" value={templateId} options={templates.map(t => ({value: t.id, label: t.name}))} allowEmpty onChange={v => void pickTemplate(v)} className="span-all"
                              hint={templates.length ? 'Fills voltage, bundle and conductor' : 'No circuit templates yet'}/>
-                <SelectField label="Voltage" value={voltage} options={meta.enums.transmissionVoltage} allowEmpty onChange={setVoltage}/>
+                <SelectField label="Voltage (rated)" value={voltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={`from the ends (${suggestedVoltage ? enumLabel(suggestedVoltage) : '–'})`} onChange={setVoltage}/>
                 <NumberField label="Bundle" value={bundle} min={1} step={1} onChange={setBundle}/>
                 <ConductorFields meta={meta} value={conductor} onChange={setConductor}/>
-                <NumberField label="Length (km)" value={lengthKm} min={0} onChange={setLengthKm} hint={km !== undefined ? `straight line ${km} km` : undefined}/>
-                <SelectField label="Transmission path" value={pathId} allowEmpty emptyLabel="New path"
-                             options={pathChoices.map(p => ({value: p.id, label: `${p.name} · ${refLabel(ed.doc, p.from)} → ${refLabel(ed.doc, p.to)} (${ed.doc.circuits.filter(c => c.pathId === p.id).length} circuits, ${p.waypoints.length} pts)${runs(p, fromRef, toRef) ? '' : ' · runs the other way'}`}))}
-                             onChange={v => setPathId(v ?? '')} className="span-all"
-                             hint={reversed ? `${chosenPath!.name} runs the other way: the circuit follows it, from ${refLabel(ed.doc, firstRef)} to ${refLabel(ed.doc, secondRef)}`
-                                     : pathChoices.length ? `Existing routes between the two ends (${pathChoices.length}); pick one to run in parallel with its circuits` : 'No existing route between the two ends: a new path is created'}/>
-                {!pathId && <TextField label="New path name" value={pathName} onChange={setPathName} placeholder={autoPath.name} className="span-all"/>}
-                {!pathId && <NewIdField label="New path id" value={newPathId} onChange={setNewPathId} auto={uniqueId(ed.doc, autoPath.id)} className="span-all"/>}
+                <NumberField label="Length (km)" value={lengthKm} min={0} onChange={v => {
+                    setLengthTouched(true)
+                    setLengthKm(v)
+                }} hint={km !== undefined ? `straight line ${km} km` : undefined}/>
+                <SelectField label="Energized voltage" value={energized} options={voltageOptions} allowEmpty emptyLabel={`the connections' (${plan.autoEnergized ? enumLabel(plan.autoEnergized) : 'unknown'})`} onChange={setEnergized}
+                             hint="Empty: the voltage of the take-off / node at the FROM end (else the TO end); pick the other end's take-off voltage, or 0V for a circuit not in service"/>
+                {bothEnds && plan.pathChoices.length > 0 && (
+                    <SelectField label="Transmission path" className="span-all" value={plan.pathCreated ? NEW_PATH : plan.path?.id ?? (pathPick || undefined)}
+                                 options={[
+                                     ...plan.pathChoices.map(p => ({value: p.id, label: `${p.name} · ${refLabel(doc, p.from)} → ${refLabel(doc, p.to)} (${doc.circuits.filter(c => c.pathId === p.id).length} circuits, ${p.waypoints.length} pts)`})),
+                                     {value: NEW_PATH, label: 'New path (no reuse)'},
+                                 ]}
+                                 onChange={v => setPathPick(v)}
+                                 hint={plan.reversed && plan.path ? `${plan.path.name} runs the other way: the circuit follows it, FROM and TO swapped` : 'A path already runs between the two places: the circuit shares it unless a new one is picked'}/>
+                )}
+                {newPath && <TextField label="New path name" value={pathName} onChange={setPathName} placeholder={plan.autoPath?.name} className="span-all"/>}
+                {newPath && <NewIdField label="New path id" value={newPathId} onChange={setNewPathId} auto={plan.autoPath ? uniqueId(doc, plan.autoPath.id) : undefined} className="span-all"/>}
             </div>
-            <h4 className="muted" style={{marginTop: 12}}>Connections at the ends</h4>
-            <EndConnectionChoice end={CIRCUIT_END_FROM} ep={from} choice={endChoice[CIRCUIT_END_FROM]} set={p => setEnd(CIRCUIT_END_FROM, p)}/>
-            <EndConnectionChoice end={CIRCUIT_END_TO} ep={to} choice={endChoice[CIRCUIT_END_TO]} set={p => setEnd(CIRCUIT_END_TO, p)}/>
-            {planned && (
-                <p className="small" style={{marginTop: 4}}>
-                    Energized voltage: <b style={{color: voltageColor(planned.circuit.energizedVoltage)}}>{planned.circuit.energizedVoltage ?? 'unknown'}</b>
-                    <span className="muted"> (taken from the connections; editable later in the circuit panel)</span>
-                    {planned.circuit.energizedVoltage && voltage && planned.circuit.energizedVoltage !== voltage && <span className="warn-dot"> ⚠ differs from the rated {voltage}: drawn with a dotted overlay</span>}
-                </p>
+            {problems.length > 0 && <Notice kind="error">{problems.join('. ')}.</Notice>}
+            {plan.warnings.length > 0 && (
+                <Notice kind="warn">
+                    <ul style={{margin: 0, paddingLeft: 16}}>{plan.warnings.map(w => <li key={w}>⚠ {w}</li>)}</ul>
+                </Notice>
             )}
-            {planned && planned.mismatch.length > 0 && (
-                <Notice kind="warn"><strong>⚠ Attention:</strong> the ends sit at different voltages:{planned.mismatch.map(m => <span key={m.end}> the {END_LABEL[m.end]} connection <b>{m.connection.name ?? m.connection.id}</b> is at <b>{m.expected}</b></span>)}. The circuit will be energized at {planned.circuit.energizedVoltage ?? 'no voltage'}.</Notice>
-            )}
-            {pathMismatch && <Notice kind="error">{pathMismatch}</Notice>}
             <div className="toolbar" style={{marginTop: 10}}>
-                <button type="button" className="primary" onClick={create} disabled={!circuitName || !!pathMismatch || !newIdOk(ed.doc, circuitId) || (!pathId && !newIdOk(ed.doc, newPathId)) || !newIdOk(ed.doc, endChoice.FROM.newId) || !newIdOk(ed.doc, endChoice.TO.newId)}>Create circuit</button>
+                <button type="button" className="primary small" disabled={plan.errors.length > 0 || !plan.circuit} onClick={create}>Create circuit</button>
+                {creates.length > 0 && <span className="small muted">also creates {creates.join(', ')}</span>}
             </div>
+        </div>
+    )
+}
+
+/**
+ * One end of the new circuit: the place (a site or a line junction; × takes it out, as a right-click on the map does),
+ * then at a site how it connects (a free take-off of any yard, a new take-off with its line name, or the site junction)
+ * and at a junction which node it joins (or a node of its own: an open end), with the new connection's name / id.
+ */
+function CircuitEndField({label, place, other, end, choice, setPlace, setChoice}: {
+    label: string
+    place: string
+    other: string
+    end: NewCircuitEndPlan
+    choice: CircuitEndChoice
+    setPlace: (v: string) => void
+    setChoice: (p: Partial<CircuitEndChoice>) => void
+}) {
+    const ed = useNetworkEditor()
+    const doc = ed.doc
+    const options = circuitPlaceOptions(doc).filter(o => o.value !== other)
+    const site = place.startsWith('G:') ? doc.substationGroups.find(g => g.id === place.slice(2)) : undefined
+    const yards = site ? yardsOf(doc, site.id) : []
+    const siteJunction = site ? siteJunctionOf(doc, site.id) : undefined
+    const connect = end.connect
+    const connectValue = !connect ? '' : connect.kind === 'takeOff' ? `T:${connect.takeOffId}` : connect.kind === 'newTakeOff' ? `N:${connect.yardId}` : 'J'
+    const nodes = end.junction ? connectionsAtJunction(doc, end.junction.id) : []
+    return (
+        <div className="field">
+            <label>{label}</label>
+            <div style={{display: 'flex', gap: 4}}>
+                <select value={place} onChange={e => setPlace(e.target.value)} style={{flex: 1, minWidth: 0}}>
+                    <option value="">Click on the map, or choose a site or junction…</option>
+                    {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {place && <button type="button" className="small" title="Take this end out again (or right-click it on the map)" onClick={() => setPlace('')}>×</button>}
+            </div>
+            {site && (
+                <select value={connectValue} style={{marginTop: 4}} onChange={e => {
+                    const v = e.target.value
+                    setChoice({connect: v.startsWith('T:') ? {kind: 'takeOff', takeOffId: v.slice(2)} : v.startsWith('N:') ? {kind: 'newTakeOff', yardId: v.slice(2)} : {kind: 'junction'}})
+                }}>
+                    {yards.map(y => (
+                        <optgroup key={y.id} label={`Yard ${y.yardName} (${enumLabel(y.voltage)})`}>
+                            {freeTakeOffs(doc, y.id).map(t => <option key={t.id} value={`T:${t.id}`}>Free take-off {t.lineName}{t.voltage && t.voltage !== y.voltage ? ` (${enumLabel(t.voltage)})` : ''}</option>)}
+                            <option value={`N:${y.id}`}>New take-off in yard {y.yardName}</option>
+                        </optgroup>
+                    ))}
+                    <option value="J">Site junction {siteJunction ? siteJunction.name ?? siteJunction.id : '(created)'}: no yard</option>
+                </select>
+            )}
+            {connect?.kind === 'newTakeOff' && (
+                <input type="text" value={connect.lineName ?? ''} placeholder={`take-off line name (${end.takeOff?.lineName ?? 'rule name'})`} style={{marginTop: 4}}
+                       onChange={e => setChoice({connect: {...connect, lineName: e.target.value.toUpperCase()}})}/>
+            )}
+            {connect?.kind === 'junction' && end.junction && (
+                <select value={connect.connectionId ?? ''} style={{marginTop: 4}} onChange={e => setChoice({connect: {kind: 'junction', connectionId: e.target.value || undefined}})}>
+                    <option value="">A node of its own (open end)</option>
+                    {nodes.map(n => <option key={n.id} value={n.id}>Join node {n.name ?? n.id} ({n.nodes.length} end{n.nodes.length === 1 ? '' : 's'}{n.voltage ? ` · ${enumLabel(n.voltage)}` : ''})</option>)}
+                </select>
+            )}
+            {end.ref && !end.node && (
+                <div className="toolbar small" style={{marginTop: 4}}>
+                    <span className="muted">{end.takeOff ? 'new connection' : 'new node'}</span>
+                    <input type="text" value={choice.connectionName} placeholder="name (optional)" style={{width: 130}} onChange={e => setChoice({connectionName: e.target.value})}/>
+                    <NewIdField compact value={choice.connectionId} onChange={v => setChoice({connectionId: v})}/>
+                </div>
+            )}
+            {end.ref && <span className="hint">{end.label}{end.voltage ? ` · at ${enumLabel(end.voltage)}` : ''}</span>}
         </div>
     )
 }
