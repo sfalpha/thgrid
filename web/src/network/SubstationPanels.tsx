@@ -41,7 +41,7 @@ import {api, MetaResponse} from '../api/client'
 import {useTemplates} from '../hooks/useTemplates'
 import {hrefTo} from '../hooks/useHashRoute'
 import {CheckboxField, enumLabel, NumberField, SelectField, TextField} from '../components/fields'
-import {useNetworkEditor} from './NetworkContext'
+import {useDraftGuard, useNetworkEditor} from './NetworkContext'
 import {IdEditor} from './IdEditor'
 import type {NetworkCollectionName} from '@shared/network/records'
 import {busLabel, type SubstationLayout} from './geometry'
@@ -75,6 +75,7 @@ function useDraft<T extends { id: string }>(record: T) {
     }, [record])
     const set = <K extends keyof T>(key: K, value: T[K]) => setDraft(d => ({...d, [key]: value}))
     const dirty = JSON.stringify(draft) !== JSON.stringify(record)
+    useDraftGuard(record.id, dirty)
     return {draft, set, setDraft, dirty, reset: () => setDraft(record)}
 }
 

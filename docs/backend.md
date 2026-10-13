@@ -265,7 +265,7 @@ version** and a **journal of unsaved operations** per network.
 ```
 <dataDir>/networks/<id>.json                    current document
 <dataDir>/networks/history/<id>.<stamp>.json    archived versions; stamp = UTC archival time YYYYMMDDTHHMMSSmmmZ
-<dataDir>/networks/journal/<id>.json            unsaved ops: { id, networkId, baseRevision, entries[] }
+<dataDir>/networks/journal/<id>.json            unsaved ops: { id, networkId, baseRevision, startedAt, entries[] }
 ```
 
 * `save(doc)` copies the existing current file to `history/` (if any) and
@@ -305,8 +305,9 @@ All mutating methods of one network run through a per-network promise chain
 | `GET /api/networks/:id` | – | 200 `NetworkDocument` | saved version |
 | `DELETE /api/networks/:id` | – | 200 `{ deleted, archivedVersion }` | |
 | `GET /api/networks/:id/working` | – | 200 `WorkingState` | `{ document, savedRevision, savedAt, journal, issues }` |
-| `GET /api/networks/:id/journal` | – | 200 `NetworkJournal` | |
-| `POST /api/networks/:id/journal` | `{ ops, expectedLastSeq? }` | 200 `{ lastSeq, appended[], entries }` | 409 / 422 as above |
+| `GET /api/networks/:id/journal` | – | 200 `NetworkJournal` | `?after=N`: 200 `JournalSince` `{ networkId, savedRevision, baseRevision, startedAt, lastSeq, entries }` with only the entries after seq N; 400 for a malformed N |
+| `POST /api/networks/:id/journal` | `{ ops, expectedLastSeq? }` | 200 `{ lastSeq, appended[], entries, startedAt }` | 409 / 422 as above |
+| `GET /api/networks/:id/events` | – | 200 `text/event-stream` | one `NetworkChangeEvent` `{ type, networkId, revision?, lastSeq?, client? }` per journal append (`journal`), save (`saved`), discard (`discarded`), rollback / overwrite-import (`replaced`) and delete (`deleted`); a `: ping` comment every 25 s |
 | `DELETE /api/networks/:id/journal` | – | 200 `{ discarded }` | |
 | `POST /api/networks/:id/save` | – | 200 `{ document, archivedVersion, appliedEntries }` | `?force=true` saves despite issues |
 | `GET /api/networks/:id/export` | – | 200 `NetworkDocument` | `?working=true`, `?download=true` (attachment) |
@@ -317,13 +318,26 @@ All mutating methods of one network run through a per-network promise chain
 
 The JSON body limit is 50 MB to allow large documents.
 
+Requests may carry `X-Thgrid-Client: <id>` (letters, digits, `_`, `-`; up to 64): the id of the editor (browser tab).
+Changes it makes carry it as `client` in their events, so that editor can skip its own. `NetworkService.events`
+(an `EventEmitter`, event `'change'`) is the source of the stream. A journal's `startedAt` is set when its first entry is
+appended; with `baseRevision` it tells a journal from one discarded and started again since.
+
 ### 6.4 Journal protocol (what the UI does)
 
 1. Open: `GET …/working` → document + `journal.lastSeq`.
 2. Every edit: apply the ops locally, then `POST …/journal` with
    `expectedLastSeq`; update `lastSeq` from the response. Posts are
-   serialised; a failure is shown and the user reloads.
+   serialised. A 409 (another editor appended first) pulls their entries and
+   retries; a 422 drops the batch and reloads the working document.
 3. Save: `POST …/save` → new revision; the UI replaces its document.
 4. Discard: `DELETE …/journal` then reload.
 5. Crash / reload: `GET …/working` replays the journal, so no edit is lost.
+6. Other editors: `GET …/events` while open. On an event from another
+   client: `GET …/journal?after=lastSeq` and apply the entries; when the saved
+   revision, the journal's `baseRevision` / `startedAt` or its `lastSeq` show
+   it was saved, discarded or replaced meanwhile (or entries are missing),
+   `GET …/working` instead. Unsent edits are replayed on top; one touching a
+   record that changed is dropped and the user told (see frontend 9.2). On
+   (re)connecting the stream the UI pulls once to catch up.
 

@@ -48,15 +48,23 @@ export interface DeleteTemplateResponse {
 
 import type {NetworkDocument, NetworkSummary} from '@shared/network/records'
 import type {NetworkOp, NetworkJournal, JournalEntry} from '@shared/network/ops'
-import type {WorkingState, AppendResult, SaveResult, JournalState} from '@shared/server/services/network.service'
+import type {WorkingState, AppendResult, SaveResult, JournalState, JournalSince, NetworkChangeEvent} from '@shared/server/services/network.service'
 import type {NetworkVersionInfo} from '@shared/server/storage/network.store'
 
-export type {NetworkDocument, NetworkSummary, NetworkOp, NetworkJournal, JournalEntry, WorkingState, AppendResult, SaveResult, JournalState, NetworkVersionInfo}
+export type {NetworkDocument, NetworkSummary, NetworkOp, NetworkJournal, JournalEntry, WorkingState, AppendResult, SaveResult, JournalState, JournalSince, NetworkChangeEvent, NetworkVersionInfo}
+
+/**
+ * This browser tab, sent as `X-Thgrid-Client` with every request: the server puts it on the change events it streams, so
+ * an editor can skip its own changes. (`crypto.randomUUID` needs a secure context, which a LAN `dev:host` URL is not.)
+ */
+export const CLIENT_ID: string = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
     const res = await fetch(url, {
         method,
-        headers: body !== undefined ? {'Content-Type': 'application/json'} : undefined,
+        headers: body !== undefined ? {'Content-Type': 'application/json', 'X-Thgrid-Client': CLIENT_ID} : {'X-Thgrid-Client': CLIENT_ID},
         body: body !== undefined ? JSON.stringify(body) : undefined,
     })
     const text = await res.text()
@@ -113,6 +121,9 @@ export const api = {
         delete: (id: string) => request<{ deleted: true; archivedVersion?: string }>('DELETE', `/api/networks/${id}`),
         working: (id: string) => request<WorkingState>('GET', `/api/networks/${id}/working`),
         journal: (id: string) => request<NetworkJournal>('GET', `/api/networks/${id}/journal`),
+        journalSince: (id: string, after: number) => request<JournalSince>('GET', `/api/networks/${id}/journal?after=${after}`),
+        /** Server-sent `NetworkChangeEvent`s of one network. */
+        events: (id: string) => new EventSource(`/api/networks/${id}/events`),
         append: (id: string, ops: NetworkOp[], expectedLastSeq?: number) => request<AppendResult>('POST', `/api/networks/${id}/journal`, {ops, expectedLastSeq}),
         discard: (id: string) => request<{ discarded: number }>('DELETE', `/api/networks/${id}/journal`),
         save: (id: string, force = false) => request<SaveResult>('POST', `/api/networks/${id}/save${q({force})}`),

@@ -36,6 +36,8 @@ export interface NetworkJournal {
     networkId: string
     /** Revision of the saved document the entries apply to. */
     baseRevision: number
+    /** When this journal was started: together with `baseRevision` it tells a journal from one discarded and restarted since. */
+    startedAt?: string
     entries: JournalEntry[]
 }
 

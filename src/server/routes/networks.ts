@@ -1,6 +1,16 @@
-import {Router} from "express";
-import {NetworkService} from "../services/network.service";
+import {Request, Router} from "express";
+import {NetworkChangeEvent, NetworkService} from "../services/network.service";
+import {BadRequestError} from "../errors";
 import {asyncHandler, queryFlag} from "./async";
+
+/** The editor making a request (`X-Thgrid-Client`), passed into change events so it can skip its own. */
+const clientOf = (req: Request): string | undefined => {
+    const v = req.get('x-thgrid-client')
+    return v && /^[\w-]{1,64}$/.test(v) ? v : undefined
+}
+
+/** Heartbeat of the event stream, so proxies keep it open. */
+const EVENT_HEARTBEAT_MS = 25_000
 
 /**
  * GET    /api/networks                              summaries
@@ -10,8 +20,10 @@ import {asyncHandler, queryFlag} from "./async";
  * GET    /api/networks/:id                          saved document
  * DELETE /api/networks/:id                          delete (archived to history first)
  * GET    /api/networks/:id/working                  saved document + journal applied, journal state, issues
- * GET    /api/networks/:id/journal                  journal entries
+ * GET    /api/networks/:id/journal                  journal entries (?after=N: only those after seq N, with the journal state)
  * POST   /api/networks/:id/journal                  append { ops, expectedLastSeq? }
+ * GET    /api/networks/:id/events                   server-sent events: one `NetworkChangeEvent` per journal append, save,
+ *                                                   discard, rollback, replacing import and delete
  * DELETE /api/networks/:id/journal                  discard unsaved changes
  * POST   /api/networks/:id/save                     commit journal as a new version (?force=true ignores issues)
  * GET    /api/networks/:id/export                   document (?working=true for unsaved state, ?download=true as attachment)
@@ -34,7 +46,7 @@ export function networksRouter(service: NetworkService): Router {
 
     router.post('/import', asyncHandler(async (req, res) => {
         const id = typeof req.query.id === 'string' && req.query.id ? req.query.id : undefined
-        const result = await service.import(req.body, {overwrite: queryFlag(req.query.overwrite), id})
+        const result = await service.import(req.body, {overwrite: queryFlag(req.query.overwrite), id, client: clientOf(req)})
         res.status(result.replaced ? 200 : 201).json(result)
     }))
 
@@ -48,7 +60,7 @@ export function networksRouter(service: NetworkService): Router {
     }))
 
     router.delete('/:id', asyncHandler(async (req, res) => {
-        res.json({deleted: true, ...(await service.delete(req.params.id))})
+        res.json({deleted: true, ...(await service.delete(req.params.id, clientOf(req)))})
     }))
 
     router.get('/:id/working', asyncHandler(async (req, res) => {
@@ -56,19 +68,44 @@ export function networksRouter(service: NetworkService): Router {
     }))
 
     router.get('/:id/journal', asyncHandler(async (req, res) => {
-        res.json(await service.journal(req.params.id))
+        const after = req.query.after
+        if (after === undefined) return void res.json(await service.journal(req.params.id))
+        const n = Number(after)
+        if (!Number.isInteger(n) || n < 0) throw new BadRequestError('after must be a whole number')
+        res.json(await service.journalSince(req.params.id, n))
     }))
 
     router.post('/:id/journal', asyncHandler(async (req, res) => {
-        res.json(await service.appendOps(req.params.id, req.body))
+        res.json(await service.appendOps(req.params.id, req.body, clientOf(req)))
     }))
 
     router.delete('/:id/journal', asyncHandler(async (req, res) => {
-        res.json(await service.discard(req.params.id))
+        res.json(await service.discard(req.params.id, clientOf(req)))
+    }))
+
+    router.get('/:id/events', asyncHandler(async (req, res) => {
+        const id = req.params.id
+        await service.get(id)
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+        })
+        res.write('retry: 3000\n\n')
+        const send = (event: NetworkChangeEvent) => {
+            if (event.networkId === id) res.write(`data: ${JSON.stringify(event)}\n\n`)
+        }
+        service.events.on('change', send)
+        const heartbeat = setInterval(() => res.write(': ping\n\n'), EVENT_HEARTBEAT_MS)
+        req.on('close', () => {
+            clearInterval(heartbeat)
+            service.events.off('change', send)
+        })
     }))
 
     router.post('/:id/save', asyncHandler(async (req, res) => {
-        res.json(await service.save(req.params.id, {force: queryFlag(req.query.force)}))
+        res.json(await service.save(req.params.id, {force: queryFlag(req.query.force), client: clientOf(req)}))
     }))
 
     router.get('/:id/export', asyncHandler(async (req, res) => {
@@ -94,7 +131,7 @@ export function networksRouter(service: NetworkService): Router {
     }))
 
     router.post('/:id/versions/:stamp/rollback', asyncHandler(async (req, res) => {
-        res.json(await service.rollback(req.params.id, req.params.stamp))
+        res.json(await service.rollback(req.params.id, req.params.stamp, clientOf(req)))
     }))
 
     return router

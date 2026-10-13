@@ -426,6 +426,46 @@ async function main() {
         r = await call('DELETE', '/api/networks/smoke_grid/journal')
         check(r.status === 200 && r.json.discarded === 2, 'discard journal')
 
+        // Live editing by several editors: change events name the client that caused them (X-Thgrid-Client), and
+        // ?after= returns only the newer entries, with the journal epoch (startedAt) to tell a continuation from a restart.
+        {
+            const seen: any[] = []
+            const onChange = (e: any) => seen.push(e)
+            ctx.networkService.events.on('change', onChange)
+            const as = async (client: string, method: string, url: string, body?: unknown) =>
+                (await fetch(base + url, {method, headers: {'Content-Type': 'application/json', 'X-Thgrid-Client': client}, body: body === undefined ? undefined : JSON.stringify(body)})).json()
+            const a1 = await as('smoke-a', 'POST', '/api/networks/smoke_grid/journal', {ops: [{type: 'meta', description: 'live 1'}], expectedLastSeq: 0})
+            const b1 = await as('smoke-b', 'POST', '/api/networks/smoke_grid/journal', {ops: [{type: 'meta', description: 'live 2'}, {type: 'meta', description: 'live 3'}], expectedLastSeq: 1})
+            r = await call('GET', '/api/networks/smoke_grid/journal?after=1')
+            check(a1.lastSeq === 1 && typeof a1.startedAt === 'string' && b1.startedAt === a1.startedAt && r.json.entries.map((e: any) => e.seq).join() === '2,3'
+                && r.json.lastSeq === 3 && r.json.startedAt === a1.startedAt && r.json.savedRevision === 1, 'journal?after= returns the newer entries with the journal epoch', r.json)
+            check(seen.length === 2 && seen[0].type === 'journal' && seen[0].client === 'smoke-a' && seen[1].client === 'smoke-b' && seen[1].lastSeq === 3, 'appends emit change events naming the client', seen)
+            r = await call('GET', '/api/networks/smoke_grid/journal?after=x')
+            check(r.status === 400, 'journal?after= must be a whole number')
+            // the same events as server-sent events over HTTP
+            const ac = new AbortController()
+            const timer = setTimeout(() => ac.abort(), 5000)
+            const stream = await fetch(base + '/api/networks/smoke_grid/events', {signal: ac.signal})
+            const reader = stream.body!.getReader()
+            await as('smoke-a', 'POST', '/api/networks/smoke_grid/journal', {ops: [{type: 'meta', description: 'live 4'}]})
+            let text = ''
+            try {
+                while (!text.includes('"lastSeq":4')) {
+                    const {value, done} = await reader.read()
+                    if (done) break
+                    text += new TextDecoder().decode(value)
+                }
+            } catch {
+                // aborted by the timer: checked below
+            }
+            clearTimeout(timer)
+            ac.abort()
+            check(stream.headers.get('content-type')?.startsWith('text/event-stream') === true && text.includes('"type":"journal"') && text.includes('"client":"smoke-a"'), 'events stream journal appends as server-sent events', text)
+            await as('smoke-b', 'DELETE', '/api/networks/smoke_grid/journal')
+            check(seen.at(-1)?.type === 'discarded' && seen.at(-1)?.client === 'smoke-b', 'discard emits a change event', seen.at(-1))
+            ctx.networkService.events.off('change', onChange)
+        }
+
         r = await call('POST', '/api/networks/smoke_grid/journal', {ops: [{type: 'meta', name: 'Renamed grid'}]})
         r = await call('POST', '/api/networks/smoke_grid/save')
         check(r.status === 200 && r.json.document.revision === 2 && r.json.document.name === 'Renamed grid', 'second save -> revision 2')

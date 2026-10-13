@@ -1459,3 +1459,28 @@ pre {
     font-size: 10px;
     font-weight: 600;
 }
+
+/* "Changed by another editor" dialog (NetworkContext). */
+.sync-notice-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.sync-notice {
+    width: min(520px, 100%);
+    max-height: 80vh;
+    overflow: auto;
+    margin: 0;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+.sync-notice ul {
+    margin: 0 0 8px;
+    padding-left: 20px;
+}

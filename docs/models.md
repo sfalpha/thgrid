@@ -688,7 +688,7 @@ type NetworkOp =
   | { type: 'meta'; name?; description? }
 
 interface JournalEntry { seq: number; at: string; op: NetworkOp }
-interface NetworkJournal { networkId; baseRevision; entries: JournalEntry[] }
+interface NetworkJournal { networkId; baseRevision; startedAt?; entries: JournalEntry[] }   // startedAt: when the first entry was appended
 ```
 
 Helpers: `applyOp` / `applyOps` (pure, throw `NetworkOpError` when an op cannot
@@ -743,7 +743,7 @@ and are upgraded on their next save. Current migrations:
 ```
 data/networks/<id>.json                       current version
 data/networks/history/<id>.<stamp>.json       archived versions, stamp = archival time YYYYMMDDTHHMMSSmmmZ
-data/networks/journal/<id>.json               unsaved ops ({ id, networkId, baseRevision, entries[] })
+data/networks/journal/<id>.json               unsaved ops ({ id, networkId, baseRevision, startedAt, entries[] })
 ```
 
 The current file is copied to `history/` before every overwrite (save,

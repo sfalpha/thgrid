@@ -49,7 +49,7 @@ import {useTemplates} from '../hooks/useTemplates'
 import {hrefTo} from '../hooks/useHashRoute'
 import {CheckboxField, enumLabel, NumberField, SelectField, TextAreaField, TextField} from '../components/fields'
 import {Notice} from '../components/IssueList'
-import {Selection, useNetworkEditor} from './NetworkContext'
+import {Selection, useDraftGuard, useNetworkEditor} from './NetworkContext'
 import {FindPanel} from './FindPanel'
 import {IdEditor, NewIdField, newIdOk} from './IdEditor'
 import {
@@ -116,7 +116,9 @@ function useDraft<T extends { id: string }>(record: T) {
     const [draft, setDraft] = useState<T>(record)
     useEffect(() => setDraft(record), [record])
     const set = <K extends keyof T>(key: K, value: T[K]) => setDraft(d => ({...d, [key]: value}))
-    return {draft, set, setDraft, dirty: JSON.stringify(draft) !== JSON.stringify(record), reset: () => setDraft(record)}
+    const dirty = JSON.stringify(draft) !== JSON.stringify(record)
+    useDraftGuard(record.id, dirty)
+    return {draft, set, setDraft, dirty, reset: () => setDraft(record)}
 }
 
 function Header({title, badge, onDelete, rename}: { title: string; badge?: string; onDelete?: () => void; rename?: { collection: NetworkCollectionName; id: string; auto?: string } }) {

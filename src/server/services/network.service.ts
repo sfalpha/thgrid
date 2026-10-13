@@ -12,6 +12,7 @@ import {migrateNetworkDocument} from "../../network/migrate";
 import {slugifyTemplateId} from "../../templates/template";
 import {validateTemplateId, ValidationIssue} from "../../templates/validation";
 import {NetworkStore, NetworkVersionInfo} from "../storage/network.store";
+import {EventEmitter} from "node:events";
 import {BadRequestError, ConflictError, NotFoundError, ValidationError} from "../errors";
 
 export interface CreateNetworkInput {
@@ -22,6 +23,8 @@ export interface CreateNetworkInput {
 
 export interface JournalState {
     baseRevision: number
+    /** See `NetworkJournal.startedAt`. */
+    startedAt?: string
     entries: number
     lastSeq: number
     /** True when the journal was recorded against another revision than the current saved document. */
@@ -42,8 +45,31 @@ export interface WorkingState {
 
 export interface AppendResult {
     lastSeq: number
+    startedAt?: string
     appended: JournalEntry[]
     entries: number
+}
+
+/** The journal entries after a given seq (`GET /journal?after=`), with what a client needs to tell a continuation from a reset. */
+export interface JournalSince {
+    networkId: string
+    savedRevision: number
+    baseRevision: number
+    startedAt?: string
+    lastSeq: number
+    entries: JournalEntry[]
+}
+
+/**
+ * A change to a network, streamed to editors (`GET /:id/events`). `client` is the editor that caused it (the
+ * `X-Thgrid-Client` header), so it can skip its own changes.
+ */
+export interface NetworkChangeEvent {
+    type: 'journal' | 'saved' | 'discarded' | 'replaced' | 'deleted'
+    networkId: string
+    revision?: number
+    lastSeq?: number
+    client?: string
 }
 
 export interface SaveResult {
@@ -55,8 +81,14 @@ export interface SaveResult {
 export class NetworkService {
     /** Per-network promise chain so journal appends and saves never interleave. */
     private readonly locks = new Map<string, Promise<unknown>>()
+    /** Emits `'change'` with a `NetworkChangeEvent` after every journal append, save, discard, rollback, import and delete. */
+    readonly events = new EventEmitter().setMaxListeners(0)
 
     constructor(private readonly store: NetworkStore) {
+    }
+
+    private emit(event: NetworkChangeEvent): void {
+        this.events.emit('change', event)
     }
 
     private locked<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -99,9 +131,11 @@ export class NetworkService {
         })
     }
 
-    async delete(id: string): Promise<{ archivedVersion?: string }> {
+    async delete(id: string, client?: string): Promise<{ archivedVersion?: string }> {
         await this.get(id)
-        return this.locked(id, async () => ({archivedVersion: await this.store.delete(id)}))
+        const result = await this.locked(id, async () => ({archivedVersion: await this.store.delete(id)}))
+        this.emit({type: 'deleted', networkId: id, client})
+        return result
     }
 
     /* ---------- journal ---------- */
@@ -111,12 +145,23 @@ export class NetworkService {
         return (await this.store.getJournal(id)) ?? {networkId: id, baseRevision: (await this.get(id)).revision, entries: []}
     }
 
+    /** Entries after `after` (exclusive), for an editor catching up with others. */
+    async journalSince(id: string, after: number): Promise<JournalSince> {
+        const doc = await this.get(id)
+        const journal = await this.store.getJournal(id)
+        const entries = journal?.entries ?? []
+        return {
+            networkId: id, savedRevision: doc.revision, baseRevision: journal?.baseRevision ?? doc.revision, startedAt: journal?.startedAt,
+            lastSeq: entries.at(-1)?.seq ?? 0, entries: entries.filter(e => e.seq > after),
+        }
+    }
+
     private replay(doc: NetworkDocument, journal: NetworkJournal | undefined): { working: NetworkDocument; state: JournalState } {
         if (!journal || journal.entries.length === 0) {
-            return {working: doc, state: {baseRevision: doc.revision, entries: 0, lastSeq: journal?.entries.at(-1)?.seq ?? 0, stale: false}}
+            return {working: doc, state: {baseRevision: doc.revision, startedAt: journal?.startedAt, entries: 0, lastSeq: journal?.entries.at(-1)?.seq ?? 0, stale: false}}
         }
         const stale = journal.baseRevision !== doc.revision
-        const base: JournalState = {baseRevision: journal.baseRevision, entries: journal.entries.length, lastSeq: journal.entries[journal.entries.length - 1].seq, stale}
+        const base: JournalState = {baseRevision: journal.baseRevision, startedAt: journal.startedAt, entries: journal.entries.length, lastSeq: journal.entries[journal.entries.length - 1].seq, stale}
         try {
             return {working: migrateNetworkDocument(applyOps(doc, journal.entries.map(e => e.op))).doc, state: base}
         } catch (e) {
@@ -135,16 +180,16 @@ export class NetworkService {
      * Appends ops to the journal. Each op must apply cleanly to the current
      * working document (otherwise nothing is appended). `expectedLastSeq`
      * detects a second editor: when given and different from the journal's
-     * last seq the call fails with 409.
+     * last seq the call fails with 409. `client` identifies the editor in the change event.
      */
-    async appendOps(id: string, input: unknown): Promise<AppendResult> {
+    async appendOps(id: string, input: unknown, client?: string): Promise<AppendResult> {
         const body = (input ?? {}) as { ops?: unknown; expectedLastSeq?: unknown }
         const issues = validateNetworkOps(body.ops)
         if (issues.length) throw new ValidationError(issues)
         const ops = body.ops as NetworkOp[]
         return this.locked(id, async () => {
             const doc = await this.get(id)
-            const journal = (await this.store.getJournal(id)) ?? {networkId: id, baseRevision: doc.revision, entries: []}
+            const journal: NetworkJournal = (await this.store.getJournal(id)) ?? {networkId: id, baseRevision: doc.revision, startedAt: new Date().toISOString(), entries: []}
             const lastSeq = journal.entries.length ? journal.entries[journal.entries.length - 1].seq : 0
             if (body.expectedLastSeq !== undefined && body.expectedLastSeq !== lastSeq) {
                 throw new ConflictError(`Journal has moved on (expected last seq ${String(body.expectedLastSeq)}, actual ${lastSeq}); reload the network`, {lastSeq})
@@ -164,21 +209,23 @@ export class NetworkService {
             const appended: JournalEntry[] = ops.map((op, i) => ({seq: lastSeq + i + 1, at: now, op}))
             journal.entries.push(...appended)
             await this.store.putJournal(journal)
-            return {lastSeq: lastSeq + ops.length, appended, entries: journal.entries.length}
+            this.emit({type: 'journal', networkId: id, revision: doc.revision, lastSeq: lastSeq + ops.length, client})
+            return {lastSeq: lastSeq + ops.length, appended, entries: journal.entries.length, startedAt: journal.startedAt}
         })
     }
 
-    async discard(id: string): Promise<{ discarded: number }> {
+    async discard(id: string, client?: string): Promise<{ discarded: number }> {
         await this.get(id)
         return this.locked(id, async () => {
             const journal = await this.store.getJournal(id)
             await this.store.deleteJournal(id)
+            this.emit({type: 'discarded', networkId: id, revision: (await this.get(id)).revision, client})
             return {discarded: journal?.entries.length ?? 0}
         })
     }
 
     /** Replays the journal onto the saved document, validates, archives the old version and writes the new one. */
-    async save(id: string, opts: { force?: boolean } = {}): Promise<SaveResult> {
+    async save(id: string, opts: { force?: boolean; client?: string } = {}): Promise<SaveResult> {
         await this.get(id)
         return this.locked(id, async () => {
             const doc = await this.get(id)
@@ -192,6 +239,7 @@ export class NetworkService {
             const next: NetworkDocument = {...working, revision: doc.revision + 1, updatedAt: new Date().toISOString()}
             const archivedVersion = await this.store.save(next)
             await this.store.deleteJournal(id)
+            this.emit({type: 'saved', networkId: id, revision: next.revision, client: opts.client})
             return {document: next, archivedVersion, appliedEntries: state.entries}
         })
     }
@@ -217,7 +265,7 @@ export class NetworkService {
     }
 
     /** Makes an archived version the current document (the replaced current document is archived first). Discards the journal. */
-    async rollback(id: string, stamp: string): Promise<SaveResult> {
+    async rollback(id: string, stamp: string, client?: string): Promise<SaveResult> {
         const version = await this.version(id, stamp)
         return this.locked(id, async () => {
             const current = await this.get(id)
@@ -225,6 +273,7 @@ export class NetworkService {
             const archivedVersion = await this.store.save(restored)
             const journal = await this.store.getJournal(id)
             await this.store.deleteJournal(id)
+            this.emit({type: 'replaced', networkId: id, revision: restored.revision, client})
             return {document: restored, archivedVersion, appliedEntries: journal?.entries.length ?? 0}
         })
     }
@@ -251,7 +300,7 @@ export class NetworkService {
      * then the document, then the name. Existing networks are only replaced
      * with `overwrite` (the old version is archived) and their journal is discarded.
      */
-    async import(input: unknown, opts: { overwrite?: boolean; id?: string } = {}): Promise<{ document: NetworkDocument; archivedVersion?: string; replaced: boolean }> {
+    async import(input: unknown, opts: { overwrite?: boolean; id?: string; client?: string } = {}): Promise<{ document: NetworkDocument; archivedVersion?: string; replaced: boolean }> {
         const body = input as Partial<NetworkDocument> | undefined
         if (!body || typeof body !== 'object') throw new BadRequestError('body must be a network document')
         if (body.format !== NETWORK_DOCUMENT_FORMAT || body.version !== NETWORK_DOCUMENT_VERSION) {
@@ -275,6 +324,7 @@ export class NetworkService {
             }
             const archivedVersion = await this.store.save(doc)
             await this.store.deleteJournal(id)
+            if (existing) this.emit({type: 'replaced', networkId: id, revision: doc.revision, client: opts.client})
             return {document: doc, archivedVersion, replaced: !!existing}
         })
     }

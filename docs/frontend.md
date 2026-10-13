@@ -185,7 +185,9 @@ New transformers start with windings `H` (PRIMARY, 230 kV, ONLOAD) and `X`
 
 `api.meta()`, `api.templates.{list,get,create,update,validate,delete,usage,resolved}`,
 `api.collections.{list,get,create,update,validate,delete,export,import}`,
-`api.networks.{list,create,get,delete,working,journal,append,discard,save,export,import,versions,version,rollback,purgeVersions}`.
+`api.networks.{list,create,get,delete,working,journal,journalSince,events,append,discard,save,export,import,versions,version,rollback,purgeVersions}`
+(`events` opens an `EventSource`). Every request carries `X-Thgrid-Client: CLIENT_ID`, an id made once per page load, so
+the change events the server streams name the editor that caused them.
 
 Non-2xx responses throw `ApiError { status, code, message, issues, details }`
 so components can branch on `status === 409` or render `issues`. All
@@ -232,6 +234,7 @@ the UI.
 ```
 web/src/network/
   NetworkContext.tsx    editing session: working document, journal sync, undo/redo, save/discard, selection
+  journalSync.ts        live editing: records touched by ops, document diff, replay of unsent batches (rebase)
   NetworksPage.tsx      #/network – list, create, import, delete
   NetworkShell.tsx      toolbar (save / discard / undo / redo / export / versions / issues) + tabs, routes the two editors
   MapEditor.tsx         Leaflet + OpenStreetMap editor of sites, junctions and circuits
@@ -265,8 +268,28 @@ web/src/network/
 * `doc` – the working document; `dirty`, `journal.entries`, `savedRevision`.
 * `apply(ops)` – applies the ops locally (optimistic, via the shared
   `applyOps`) and appends them to the server journal with `expectedLastSeq`.
-  Appends are queued so they stay ordered; a failure sets `syncError` and the
-  shell offers *Reload* / *Discard journal*.
+  Appends are queued so they stay ordered; a failure other than the conflicts
+  below sets `syncError` and the shell offers *Reload* / *Discard journal*.
+* Several editors at once: the provider keeps the *confirmed* document (saved
+  plus every journal entry the server acknowledged) and this editor's unsent
+  batches; what it shows is the one with the others applied. It listens to
+  `GET …/events` and, on a change by another editor, pulls the new entries
+  (`…/journal?after=`), or the whole working document after a save, discard or
+  rollback elsewhere, then replays the unsent batches on top
+  (`journalSync.rebase`). An append refused with 409 pulls and retries. A batch
+  that touches a record another editor changed or deleted, or that no longer
+  applies (or that the server refuses, 422), is dropped. The pages get the
+  other editor's version, and a **Changed by another editor** dialog lists:
+  - dropped edits, with the records in conflict;
+  - records changed under an open form with unapplied edits (the panels'
+    `useDraft` reports these through `useDraftGuard`);
+  - a selected record that was deleted, which is deselected so its panel
+    closes.
+
+  Undo / redo steps touching a changed record are discarded. Changes that
+  touch nothing of yours update the map and panels silently. If the network is
+  deleted elsewhere, the page says so. While the stream is down the editor
+  pulls every 30 s.
 * `undo()` / `redo()` – inverse ops computed against the current document
   (`upsert` ↔ previous record or `delete`); they are journaled like any edit.
 * `save(force)` – `POST …/save`; the shell asks before forcing when the
