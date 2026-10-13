@@ -23,7 +23,8 @@
  */
 import {genericConductor} from '@shared/models/transmission.conductor'
 import {SubstationTakeOff} from '@shared/models/substation.take.off'
-import type {TransmissionVoltage} from '@shared/models/transmission.voltage'
+import {TransmissionVoltage} from '@shared/models/transmission.voltage'
+import type {CoordinatesProps} from '@shared/models/coordinates'
 import {
     CIRCUIT_END_FROM,
     CIRCUIT_END_TO,
@@ -32,6 +33,7 @@ import {
     ConnectionRecord,
     NetworkDocument,
     NetworkNodeKind,
+    SubstationGroupRecord,
     SubstationRecord,
     SubstationTakeOffRecord,
     TransmissionCircuitRecord,
@@ -55,6 +57,9 @@ export type RouteVia =
 
 /** Voltage a circuit runs at: energized, else rated. */
 export const runVoltage = (c: TransmissionCircuitRecord): TransmissionVoltage | undefined => c.energizedVoltage ?? c.voltage
+
+/** Voltage of a junction node a circuit is spliced in: the one it runs at (its rated one when de-energized), so attaching it there keeps it energized as it was. */
+export const nodeVoltage = (c: TransmissionCircuitRecord): TransmissionVoltage | undefined => c.energizedVoltage && c.energizedVoltage !== TransmissionVoltage.DE_ENERGIZED ? c.energizedVoltage : c.voltage
 
 /** The yards of a site and whether the chosen circuits may enter them: the yard must be at the voltage every one of them runs at. */
 export function yardChoices(doc: NetworkDocument, groupId: string, circuits: TransmissionCircuitRecord[]): { yard: SubstationRecord; reason?: string }[] {
@@ -103,7 +108,14 @@ export function viaPathEnd(doc: NetworkDocument, via: RouteVia): ConnectionJunct
 }
 
 /** Two path ends name the same place (a site and its junction or yards count as that site). */
-const samePlace = (doc: NetworkDocument, a?: ConnectionJunctionRef, b?: ConnectionJunctionRef) => !!a && !!b && (atPathEnd(doc, a, b) || atPathEnd(doc, b, a))
+export const samePlace = (doc: NetworkDocument, a?: ConnectionJunctionRef, b?: ConnectionJunctionRef) => !!a && !!b && (atPathEnd(doc, a, b) || atPathEnd(doc, b, a))
+
+/** Paths between two places, in either direction (`excludeId` left out), best first: the most circuits, then the most waypoints. */
+export function pathsBetween(doc: NetworkDocument, a: ConnectionJunctionRef | undefined, b: ConnectionJunctionRef | undefined, excludeId?: string): TransmissionPathRecord[] {
+    return doc.paths.filter(p => p.id !== excludeId
+        && ((samePlace(doc, p.from, a) && samePlace(doc, p.to, b)) || (samePlace(doc, p.from, b) && samePlace(doc, p.to, a))))
+        .sort((x, y) => doc.circuits.filter(c => c.pathId === y.id).length - doc.circuits.filter(c => c.pathId === x.id).length || y.waypoints.length - x.waypoints.length)
+}
 
 /**
  * Existing paths the two parts could run on instead of new ones: `before` between the path's FROM end and the via
@@ -113,11 +125,60 @@ export function routeViaPathChoices(doc: NetworkDocument, pathId: string, via: R
     const path = doc.paths.find(p => p.id === pathId)
     const viaRef = viaPathEnd(doc, via)
     if (!path || !viaRef) return {before: [], after: []}
-    const between = (a?: ConnectionJunctionRef, b?: ConnectionJunctionRef) => doc.paths.filter(p => p.id !== path.id
-        && ((samePlace(doc, p.from, a) && samePlace(doc, p.to, b)) || (samePlace(doc, p.from, b) && samePlace(doc, p.to, a))))
-    // best first (the default pick): the most circuits, then the most waypoints
-    const best = (list: TransmissionPathRecord[]) => list.sort((a, b) => doc.circuits.filter(c => c.pathId === b.id).length - doc.circuits.filter(c => c.pathId === a.id).length || b.waypoints.length - a.waypoints.length)
-    return {before: best(between(path.from, viaRef)), after: best(between(viaRef, path.to))}
+    return {before: pathsBetween(doc, path.from, viaRef, path.id), after: pathsBetween(doc, viaRef, path.to, path.id)}
+}
+
+/** A place circuits are routed to (`RouteVia`), resolved: see `resolveRoutePlace`. */
+export interface RoutePlace {
+    /** The place as a path end: the junction (a site junction stands for its site), or the site. */
+    ref: ConnectionJunctionRef
+    coords: CoordinatesProps
+    /** The junction the circuits meet at; undefined for a yard, or for a site whose junction is still to be created. */
+    junction?: TransmissionJunctionRecord
+    yard?: SubstationRecord
+    /** The site of a yard or of a site junction choice. */
+    site?: SubstationGroupRecord
+}
+
+/** Resolves where the circuits go; an error message when the place is gone or a yard is not at their voltage. */
+export function resolveRoutePlace(doc: NetworkDocument, via: RouteVia, circuits: TransmissionCircuitRecord[]): RoutePlace | string {
+    if (via.kind === 'junction') {
+        const junction = doc.junctions.find(j => j.id === via.junctionId)
+        if (!junction) return 'the junction no longer exists'
+        return {ref: pathEndOf(doc, junctionRef(junction.id)) ?? junctionRef(junction.id), coords: junction.coords, junction}
+    }
+    const groupId = via.kind === 'siteJunction' ? via.groupId : doc.substations.find(y => y.id === via.yardId)?.groupId
+    const site = doc.substationGroups.find(g => g.id === groupId)
+    if (!site) return 'the site no longer exists'
+    const place: RoutePlace = {ref: siteRef(site.id), coords: site.coords, site}
+    if (via.kind === 'siteJunction') return {...place, junction: siteJunctionOf(doc, site.id)}
+    const yard = doc.substations.find(y => y.id === via.yardId)!
+    const reason = yardChoices(doc, site.id, circuits).find(x => x.yard.id === yard.id)?.reason
+    return reason ? `yard ${site.groupName} ${yard.yardName}: ${reason}` : {...place, yard}
+}
+
+/** The place as the summaries name it; `junction` is the one the circuits meet at (a site junction created on the way). */
+export function routePlaceLabel(place: RoutePlace, junction = place.junction): string {
+    if (place.yard) return `yard ${place.site!.groupName} ${place.yard.yardName} (${place.yard.voltage})`
+    const jName = junction ? junction.name ?? junction.id : '?'
+    return place.site ? `site ${place.site.groupName}, through its junction ${jName}` : `junction ${jName}`
+}
+
+/**
+ * A new take-off in the yard, named toward `target` (a site, yard or junction; `<voltage>_<site>_L<n>`, numbered per
+ * target: a junction goes by its name, nothing by OPEN).
+ */
+export function newTakeOffToward(doc: NetworkDocument, yardId: string, target: ConnectionJunctionRef | undefined, voltage: TransmissionVoltage | undefined): SubstationTakeOffRecord {
+    const targetSite = target && pathEndOf(doc, target)?.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? pathEndOf(doc, target)!.id : undefined
+    let lineName = targetSite ? takeOffLineName(doc, yardId, targetSite, voltage) : undefined
+    if (!lineName) {
+        const code = target ? (doc.junctions.find(j => j.id === target.id)?.name ?? target.id) : 'OPEN'
+        let n = 1
+        while (doc.takeOffs.some(t => t.substationId === yardId && t.lineName === SubstationTakeOff.defaultLineName({targetCode: code, voltage, sequence: n}))) n++
+        lineName = SubstationTakeOff.defaultLineName({targetCode: code, voltage, sequence: n})!
+    }
+    const naming = takeOffNaming(doc, yardId, lineName)
+    return {id: uniqueId(doc, naming.id), name: naming.name, substationId: yardId, lineName, takeOffColumn: true}
 }
 
 export interface RouteViaOptions {
@@ -146,35 +207,16 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
     }
 
     // 1. the via point: its path-end form, its position, and the junction or yard the circuits meet at
-    let viaRef: ConnectionJunctionRef, coords: { latitude: number; longitude: number }
-    let junction: TransmissionJunctionRecord | undefined, yard: SubstationRecord | undefined
-    if (via.kind === 'junction') {
-        junction = doc.junctions.find(j => j.id === via.junctionId)
-        if (!junction) return fail('the junction no longer exists')
-        viaRef = pathEndOf(doc, junctionRef(junction.id)) ?? junctionRef(junction.id)
-        coords = junction.coords
-        plan.viaLabel = `junction ${junction.name ?? junction.id}`
-    } else {
-        const groupId = via.kind === 'siteJunction' ? via.groupId : doc.substations.find(y => y.id === via.yardId)?.groupId
-        const site = doc.substationGroups.find(g => g.id === groupId)
-        if (!site) return fail('the site no longer exists')
-        viaRef = siteRef(site.id)
-        coords = site.coords
-        if (via.kind === 'yard') {
-            yard = doc.substations.find(y => y.id === via.yardId)!
-            const reason = yardChoices(doc, site.id, chosen).find(x => x.yard.id === yard!.id)?.reason
-            if (reason) return fail(`yard ${site.groupName} ${yard.yardName}: ${reason}`)
-            plan.viaLabel = `yard ${site.groupName} ${yard.yardName} (${yard.voltage})`
-        } else {
-            junction = siteJunctionOf(doc, site.id)
-            if (!junction) {
-                junction = newSiteJunctionRecord(doc, site)
-                push({type: 'upsert', collection: 'junctions', record: junction})
-                plan.createdJunction = junction
-            }
-            plan.viaLabel = `site ${site.groupName}, through its junction ${junction.name ?? junction.id}`
-        }
+    const place = resolveRoutePlace(doc, via, chosen)
+    if (typeof place === 'string') return fail(place)
+    const {ref: viaRef, coords, yard} = place
+    let junction = place.junction
+    if (via.kind === 'siteJunction' && !junction) {
+        junction = newSiteJunctionRecord(probe, place.site!)
+        push({type: 'upsert', collection: 'junctions', record: junction})
+        plan.createdJunction = junction
     }
+    plan.viaLabel = routePlaceLabel(place, junction)
     if (atPathEnd(doc, viaRef, path.from) || atPathEnd(doc, viaRef, path.to)) return fail(`the path already ends at ${plan.viaLabel.replace(/,.*$/, '')}`)
 
     // 2. the cut: the route's waypoints before the segment nearest to the via point stay on the first part
@@ -219,19 +261,9 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
     const reversedA = !!reuseA && samePlace(doc, reuseA.from, viaRef)
     const reversedB = !!reuseB && samePlace(doc, reuseB.to, viaRef)
 
-    /** A new take-off in the yard, named toward `toward` (`<voltage>_<site>_L<n>`, numbered per target). */
+    /** A new take-off in the yard, named toward `target`. */
     const newTakeOff = (target: ConnectionJunctionRef | undefined, voltage: TransmissionVoltage | undefined): SubstationTakeOffRecord => {
-        const y = yard!
-        const targetSite = target && pathEndOf(probe, target)?.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? pathEndOf(probe, target)!.id : undefined
-        let lineName = targetSite ? takeOffLineName(probe, y.id, targetSite, voltage) : undefined
-        if (!lineName) {
-            const code = target ? (probe.junctions.find(j => j.id === target.id)?.name ?? target.id) : 'OPEN'
-            let n = 1
-            while (probe.takeOffs.some(t => t.substationId === y.id && t.lineName === SubstationTakeOff.defaultLineName({targetCode: code, voltage, sequence: n}))) n++
-            lineName = SubstationTakeOff.defaultLineName({targetCode: code, voltage, sequence: n})!
-        }
-        const naming = takeOffNaming(probe, y.id, lineName)
-        const rec: SubstationTakeOffRecord = {id: uniqueId(probe, naming.id), name: naming.name, substationId: y.id, lineName, takeOffColumn: true}
+        const rec = newTakeOffToward(probe, yard!.id, target, voltage)
         push({type: 'upsert', collection: 'takeOffs', record: rec})
         plan.takeOffs.push(rec)
         return rec
@@ -273,10 +305,10 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
 
         if (junction) {
             // spliced: both parts in one new node at the junction
-            const at = attachCircuitEndToJunctionOps(probe, c.id, CIRCUIT_END_TO, junction.id, c.voltage, {forceNew: true})
+            const at = attachCircuitEndToJunctionOps(probe, c.id, CIRCUIT_END_TO, junction.id, nodeVoltage(c), {forceNew: true})
             push(...at)
             const node = at[0]?.type === 'upsert' ? at[0].record as ConnectionRecord : undefined
-            if (node) push(...attachCircuitEndToJunctionOps(probe, continuation.id, CIRCUIT_END_FROM, junction.id, continuation.voltage, {connectionId: node.id}))
+            if (node) push(...attachCircuitEndToJunctionOps(probe, continuation.id, CIRCUIT_END_FROM, junction.id, nodeVoltage(c), {connectionId: node.id}))
         } else {
             // looped into the yard: a take-off toward each far end (created first: the attach must see it in `probe`)
             const back = newTakeOff(toward(path.from, false), voltage)
@@ -292,7 +324,7 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
                 if (takeOff) push(...attachCircuitEndToTakeOffOps(probe, continuation.id, CIRCUIT_END_TO, takeOff.id, {newId: oldTo.id, newName: oldTo.name}))
             } else {
                 const still = probe.connections.some(x => x.id === oldTo.id)
-                push(...attachCircuitEndToJunctionOps(probe, continuation.id, CIRCUIT_END_TO, oldTo.junction.id, continuation.voltage,
+                push(...attachCircuitEndToJunctionOps(probe, continuation.id, CIRCUIT_END_TO, oldTo.junction.id, nodeVoltage(c),
                     still ? {connectionId: oldTo.id} : {forceNew: true, newId: oldTo.id, newName: oldTo.name}))
             }
         }

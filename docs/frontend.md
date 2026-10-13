@@ -561,9 +561,13 @@ immediately.
   nothing is left (the first joined circuit is selected then). The summary
   lists the joins, paths, removals and ⚠ notes, and renaming the joined
   circuits and paths by the model rules is offered.
+* **Re-route lines** (path panel section, `PathLinesPanel`): checkboxes pick
+  one or more circuits of the path (labelled by their lines, with *all*) and
+  tabs pick the operation: **Route via**, **Route to**, **Route from**
+  (below). The checks stay when switching tabs; the place lists offer every
+  site and junction other than the path's ends.
 * **Route via a station or junction** (`routeVia.ts`, `buildRouteViaPlan`;
-  path panel, *Route via a station or junction*): checkboxes pick one or more
-  circuits of the path (labelled by their lines, with *all*), *Via* picks a
+  *Re-route lines*, *Route via*): *Via* picks a
   site or junction other than the path's ends. For a site, *Connect at*
   offers **Pass through the site junction** (created when the site has none)
   or **Into yard …**; a yard is selectable only when it is at the voltage
@@ -592,6 +596,45 @@ immediately.
   when both parts reuse existing paths. One journaled step after a summary
   confirmation; renaming the changed circuits, paths and lines by the model
   rules is offered, and the first new path is selected.
+* **Route to / Route from** (`routeEnd.ts`, `buildRouteEndPlan`; *Re-route
+  lines*, *Route to* / *Route from*): the checked circuits no longer end at
+  the path's TO end (*Route to*) or start at its FROM end (*Route from*)
+  but run on past it to another site or junction (*To* / *From*). Each
+  circuit is detached at that end and spliced, in a node of its own, with
+  its first new section (same make-up; length = its path's route, when the
+  circuit has a length) at the junction there: the line junction the path
+  ends at, or the site's own junction (created when missing).
+  *Route* picks the way out to the new place: existing paths that already
+  lead there (`routeEndRoutes`): one path between the two places, or a
+  chain of up to four paths through line junctions (never through a site,
+  nor back past the path's own ends; chains more than three times the
+  straight distance are left out), shortest first and the first chosen by
+  default, labelled with their paths, junctions and length; or **New
+  straight path**, whose waypoints are edited afterwards
+  (`RouteEndOptions.reusePathIds`, a route's `routeKey`). There is one new
+  section per path, consecutive sections spliced in a node of their own at
+  each junction passed; sections on a path running the other way follow
+  it, FROM and TO swapped (noted with ⚠).
+  At a site, *Connect at* offers **Into yard …** (default: the first yard
+  at the voltage every checked circuit runs at, the others disabled with
+  the reason, as for *Route via*): the last section enters it through a
+  new take-off named after the far station of the line; or the **Site
+  junction** (created when missing). At a junction (or the site junction)
+  the last section ends in a node of its own, to be joined to others from
+  the junction panel. When the circuits leave a take-off at the old end
+  without any circuit (`freedTakeOffs`), a checkbox (on by default) removes
+  it with its wiring in the yard (`RouteEndOptions.removeFreedTakeOffs`,
+  `cascadeDeleteOps`); unchecked, it is kept and noted with ⚠. Lines
+  through a circuit now end (start) at the new place: the new sections
+  replace the sections beyond the old end, which leave the line (circuits
+  left in no line are noted with ⚠), and the line's end becomes the new
+  yard, or is cleared when the new place is a junction (lines run yard to
+  yard). Lines that shared the circuit up to a tee at the old end end up
+  with the same sections, noted with ⚠. One journaled step after a summary
+  confirmation; renaming the new path, the new and changed circuits and the
+  lines by the model rules is offered (reused paths and lines without both
+  ends keep their names), and the first path of the new sections is
+  selected.
 * **Duplicate paths** (`mergePaths.ts`): paths between the same two places,
   in either direction (`placeKey`: a site, its yards and its site junction
   are one place; `duplicatePathGroups`, `duplicatesOf`) and none of them with

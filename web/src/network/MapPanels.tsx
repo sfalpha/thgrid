@@ -35,6 +35,7 @@ import {buildJoinCircuitsPlan, joinableReason} from './joinCircuits'
 import {buildBypassPlan, passThroughs} from './bypassJunction'
 import {buildMergeAllDuplicatesPlan, buildMergePathsPlan, duplicatePathGroups, duplicatesOf, runsReversed} from './mergePaths'
 import {buildRouteViaPlan, RouteVia, routeViaPathChoices, runVoltage, yardChoices} from './routeVia'
+import {buildRouteEndPlan, freedTakeOffs, routeEndRoutes, RouteEndRoute, routeKey, RouteTarget} from './routeEnd'
 import {TowerSlot, towerSlots} from './towerLayout'
 import {confirmDeleteLines} from './deleteLines'
 import {atPathEnd, pathEndOf} from '@shared/network/refs'
@@ -73,7 +74,7 @@ import {
 } from './linkOps'
 import {describeNode} from './SubstationPanels'
 import {nextJunctionConnectionName} from '@shared/network/migrate'
-import {CircuitDraft, CreateDraft, Endpoint, endLocation, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, Mode, plannedVoltageColor, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
+import {CircuitDraft, CreateDraft, Endpoint, endLocation, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, plannedVoltageColor, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
 import {JunctionSymbol, VoltageSymbol} from './symbols'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 
@@ -1060,7 +1061,7 @@ function PathPanel({record, setMode, locate}: MapPanelsProps & { record: Transmi
     const lines = ed.doc.lines.filter(l => l.circuitIds.some(id => circuits.some(c => c.id === id)))
     /** Yards / junctions where a circuit of the path is connected other than at the path ends. */
     const elsewhere = circuits.flatMap(c => [circuitEndRef(ed.doc, c.id, CIRCUIT_END_FROM), circuitEndRef(ed.doc, c.id, CIRCUIT_END_TO)])
-        .filter((r): r is ConnectionJunctionRef => !!r && !sameRef(r, record.from) && !sameRef(r, record.to))
+        .filter((r): r is ConnectionJunctionRef => !!r && !atPathEnd(ed.doc, r, record.from) && !atPathEnd(ed.doc, r, record.to))
         .filter((r, i, all) => all.findIndex(x => sameRef(x, r)) === i)
     return (
         <>
@@ -1098,7 +1099,7 @@ function PathPanel({record, setMode, locate}: MapPanelsProps & { record: Transmi
                     </p>
                 )}
             </div>
-            {circuits.length > 0 && <RouteViaPanel path={record} circuits={circuits} locate={locate}/>}
+            {circuits.length > 0 && <PathLinesPanel path={record} circuits={circuits} locate={locate}/>}
             <div className="panel">
                 <h3>Lines over this path ({lines.length})</h3>
                 {lines.length === 0 && <p className="small muted">No line uses a circuit of this path yet. Select a circuit that runs substation to substation and use "Group into line".</p>}
@@ -1124,12 +1125,6 @@ function PathPanel({record, setMode, locate}: MapPanelsProps & { record: Transmi
     )
 }
 
-/**
- * Route checked circuits of a path via a site or a junction (`buildRouteViaPlan`): at a junction (or a site's own
- * junction) the two parts are spliced and stay one run; into a yard they loop in through a take-off each, which only a
- * yard at the voltage the circuits are energized at allows (the others are listed disabled, with the reason).
- */
-/** The "don't reuse" option of a part: with every circuit going via, the cut path itself carries the first part not reused. */
 /** Other paths between the same two places (either direction), with a button merging them into this one (`buildMergePathsPlan`). */
 function DuplicatePathsBox({path, locate}: { path: TransmissionPathRecord; locate?: (sel: Selection) => void }) {
     const ed = useNetworkEditor()
@@ -1175,26 +1170,103 @@ function DuplicatePathsBox({path, locate}: { path: TransmissionPathRecord; locat
     )
 }
 
-const newPathLabel = (part: 'before' | 'after', all: boolean) => all && part === 'before' ? 'Cut this path at the via point (no reuse)' : 'New path (no reuse)'
+/** What the path's line operations do with the checked circuits. */
+type LineOp = 'via' | 'to' | 'from'
 
-function RouteViaPanel({path, circuits, locate}: { path: TransmissionPathRecord; circuits: TransmissionCircuitRecord[]; locate?: (sel: Selection) => void }) {
+const LINE_OPS: { key: LineOp; label: string; title: string }[] = [
+    {key: 'via', label: 'Route via', title: 'Cut the checked circuits where they pass a site or junction and run them through it'},
+    {key: 'to', label: 'Route to', title: 'Run the checked circuits on past the TO end of the path to another site or junction'},
+    {key: 'from', label: 'Route from', title: 'Start the checked circuits at another site or junction, coming in past the FROM end of the path'},
+]
+
+interface LineOpProps {
+    path: TransmissionPathRecord
+    /** The checked circuits. */
+    chosen: TransmissionCircuitRecord[]
+    locate?: (sel: Selection) => void
+    /** After the operation was applied: clears the checks. */
+    onDone: () => void
+}
+
+/** Sites and junctions the circuits of a path can be routed via, to or from: every one but the path's own ends. */
+function useRouteOptions(path: TransmissionPathRecord) {
+    const doc = useNetworkEditor().doc
+    return useEndOptions().filter(o => {
+        const ref = decodeRef(o.value)
+        return !!ref && !atPathEnd(doc, ref, path.from) && !atPathEnd(doc, ref, path.to)
+    })
+}
+
+/**
+ * Line operations on a path: checkboxes pick circuits of the path (labelled by their lines, with *all*), the tabs what
+ * happens to them: routed via a site or junction on the way (`RouteViaFields`), on past the TO end to another place or
+ * in from another place past the FROM end (`RouteEndFields`). The checks stay when switching tabs.
+ */
+function PathLinesPanel({path, circuits, locate}: { path: TransmissionPathRecord; circuits: TransmissionCircuitRecord[]; locate?: (sel: Selection) => void }) {
     const ed = useNetworkEditor()
     const doc = ed.doc
     const [checked, setChecked] = useState<Set<string>>(new Set())
+    const [op, setOp] = useState<LineOp>('via')
+    useEffect(() => {
+        setChecked(new Set())
+    }, [path.id])
+    const chosen = circuits.filter(c => checked.has(c.id))
+    const lineNames = (c: TransmissionCircuitRecord) => doc.lines.filter(l => l.circuitIds.includes(c.id)).map(l => l.name)
+    const toggle = (id: string) => setChecked(prev => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+    })
+    const done = () => setChecked(new Set())
+    return (
+        <div className="panel">
+            <div className="panel-header">
+                <h3 style={{margin: 0}}>Re-route lines</h3>
+                <span className="spacer"/>
+                {circuits.length > 1 && <label className="small" style={{display: 'flex', gap: 4, alignItems: 'center'}}>
+                    <input type="checkbox" checked={chosen.length === circuits.length} onChange={() => setChecked(chosen.length === circuits.length ? new Set() : new Set(circuits.map(c => c.id)))}/> all
+                </label>}
+            </div>
+            <div className="panel-tabs" role="tablist" style={{margin: '6px 0'}}>
+                {LINE_OPS.map(o => <button key={o.key} type="button" role="tab" aria-selected={op === o.key} className={op === o.key ? 'active' : ''} title={o.title} onClick={() => setOp(o.key)}>{o.label}</button>)}
+            </div>
+            <div className="find-results" style={{marginTop: 0}}>
+                {circuits.map(c => (
+                    <label key={c.id} className="find-item small" style={{padding: '2px 0'}}>
+                        <input type="checkbox" checked={checked.has(c.id)} onChange={() => toggle(c.id)}/>
+                        <VoltageSwatch circuit={c}/>
+                        <span><strong>{lineNames(c).join(', ') || c.name}</strong>{lineNames(c).length > 0 && <span className="muted"> · {c.name}</span>}<span className="muted"> · {runVoltage(c) ?? 'no voltage'}</span></span>
+                    </label>
+                ))}
+            </div>
+            {op === 'via'
+                ? <RouteViaFields path={path} circuits={circuits} chosen={chosen} locate={locate} onDone={done}/>
+                : <RouteEndFields key={op} path={path} chosen={chosen} end={op === 'to' ? CIRCUIT_END_TO : CIRCUIT_END_FROM} locate={locate} onDone={done}/>}
+        </div>
+    )
+}
+
+/** The "don't reuse" option of a part: with every circuit going via, the cut path itself carries the first part not reused. */
+const newPathLabel = (part: 'before' | 'after', all: boolean) => all && part === 'before' ? 'Cut this path at the via point (no reuse)' : 'New path (no reuse)'
+
+/**
+ * Route checked circuits of a path via a site or a junction (`buildRouteViaPlan`): at a junction (or a site's own
+ * junction) the two parts are spliced and stay one run; into a yard they loop in through a take-off each, which only a
+ * yard at the voltage the circuits are energized at allows (the others are listed disabled, with the reason).
+ */
+function RouteViaFields({path, circuits, chosen, locate, onDone}: LineOpProps & { circuits: TransmissionCircuitRecord[] }) {
+    const ed = useNetworkEditor()
+    const doc = ed.doc
     const [viaValue, setViaValue] = useState('')
     const [connect, setConnect] = useState('J')   // 'J' = through the site junction, 'Y:<id>' = into that yard
     /** Path choice per part: an existing path's id, NEW_PATH, or unset = the first existing path when there is one. */
     const [pathPick, setPathPick] = useState<{ before?: string; after?: string }>({})
     useEffect(() => {
-        setChecked(new Set())
         setViaValue('')
         setPathPick({})
     }, [path.id])
-    const chosen = circuits.filter(c => checked.has(c.id))
-    const endOptions = useEndOptions().filter(o => {
-        const ref = decodeRef(o.value)
-        return !!ref && !atPathEnd(doc, ref, path.from) && !atPathEnd(doc, ref, path.to)
-    })
+    const endOptions = useRouteOptions(path)
     const viaRef = decodeRef(viaValue)
     const site = viaRef?.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? doc.substationGroups.find(g => g.id === viaRef.id) : undefined
     const yards = site ? yardChoices(doc, site.id, chosen) : []
@@ -1211,13 +1283,6 @@ function RouteViaPanel({path, circuits, locate}: { path: TransmissionPathRecord;
     }
     const reuseBefore = partChoice('before'), reuseAfter = partChoice('after')
     const viaName = site ? site.groupName : viaRef ? refLabel(doc, viaRef) : '…'
-    const lineNames = (c: TransmissionCircuitRecord) => doc.lines.filter(l => l.circuitIds.includes(c.id)).map(l => l.name)
-    const toggle = (id: string) => setChecked(prev => {
-        const next = new Set(prev)
-        if (next.has(id)) next.delete(id)
-        else next.add(id)
-        return next
-    })
 
     const run = () => {
         if (!via || !chosen.length) return
@@ -1238,7 +1303,7 @@ function RouteViaPanel({path, circuits, locate}: { path: TransmissionPathRecord;
         if (!window.confirm(`${summary}\n\nContinue?`)) return
         const rename = plan.regenerate.changes.length > 0 && window.confirm(`Also rename the changed circuits, paths and lines by the model rules (${plan.regenerate.changes.length} change(s))?`)
         if (!ed.apply(rename ? [...plan.ops, ...plan.regenerate.ops] : plan.ops)) return
-        setChecked(new Set())
+        onDone()
         // the path may have been renamed: show the first part
         const pathId = (rename && plan.regenerate.changes.find(c => c.collection === 'paths' && c.id === plan.pathA?.id)?.newId) || plan.pathA?.id
         if (pathId) {
@@ -1248,23 +1313,7 @@ function RouteViaPanel({path, circuits, locate}: { path: TransmissionPathRecord;
     }
 
     return (
-        <div className="panel">
-            <div className="panel-header">
-                <h3 style={{margin: 0}}>Route via a station or junction</h3>
-                <span className="spacer"/>
-                {circuits.length > 1 && <label className="small" style={{display: 'flex', gap: 4, alignItems: 'center'}}>
-                    <input type="checkbox" checked={chosen.length === circuits.length} onChange={() => setChecked(chosen.length === circuits.length ? new Set() : new Set(circuits.map(c => c.id)))}/> all
-                </label>}
-            </div>
-            <div className="find-results" style={{marginTop: 0}}>
-                {circuits.map(c => (
-                    <label key={c.id} className="find-item small" style={{padding: '2px 0'}}>
-                        <input type="checkbox" checked={checked.has(c.id)} onChange={() => toggle(c.id)}/>
-                        <VoltageSwatch circuit={c}/>
-                        <span><strong>{lineNames(c).join(', ') || c.name}</strong>{lineNames(c).length > 0 && <span className="muted"> · {c.name}</span>}<span className="muted"> · {runVoltage(c) ?? 'no voltage'}</span></span>
-                    </label>
-                ))}
-            </div>
+        <>
             <div className="form-grid" style={{gridTemplateColumns: '1fr', marginTop: 6}}>
                 <SelectField label="Via" value={viaValue || undefined} options={endOptions} allowEmpty emptyLabel="Choose a site or junction…" onChange={v => {
                     setViaValue(v ?? '')
@@ -1295,7 +1344,140 @@ function RouteViaPanel({path, circuits, locate}: { path: TransmissionPathRecord;
             <div className="toolbar" style={{marginTop: 6}}>
                 <button type="button" className="small primary" disabled={!via || chosen.length === 0} onClick={run}>Route {chosen.length || ''} via {viaName}</button>
             </div>
-        </div>
+        </>
+    )
+}
+
+/**
+ * Route checked circuits of a path to another site or junction past its TO end, or from one past its FROM end
+ * (`buildRouteEndPlan`): at that end each circuit is spliced, through the junction there (a site's own, created when
+ * missing), with new sections to / from the place chosen here; the last one enters a yard at the circuits' voltage
+ * through a new take-off or ends in a node at a junction. The sections run on existing paths that already lead there,
+ * directly or through line junctions (`routeEndRoutes`, the shortest picked by default), or on a new straight path;
+ * lines through the circuits end at the new place. A take-off the circuits leave without a circuit at the old end can
+ * be removed (checked by default).
+ */
+function RouteEndFields({path, chosen, end, locate, onDone}: LineOpProps & { end: CircuitEnd }) {
+    const ed = useNetworkEditor()
+    const doc = ed.doc
+    const [placeValue, setPlaceValue] = useState('')
+    /** 'J' = the site junction, 'Y:<id>' = into that yard, '' = the first yard the checked circuits may enter, else the junction. */
+    const [connect, setConnect] = useState('')
+    /** A route of existing paths (`routeKey`), NEW_PATH, or unset = the first route found, when there is one. */
+    const [routePick, setRoutePick] = useState<string | undefined>()
+    const [removeTakeOffs, setRemoveTakeOffs] = useState(true)
+    useEffect(() => {
+        setPlaceValue('')
+        setConnect('')
+        setRoutePick(undefined)
+    }, [path.id])
+    const placeOptions = useRouteOptions(path)
+    const toEnd = end === CIRCUIT_END_TO
+    const endRef = toEnd ? path.to : path.from
+    const placeRef = decodeRef(placeValue)
+    const site = placeRef?.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? doc.substationGroups.find(g => g.id === placeRef.id) : undefined
+    const yards = site ? yardChoices(doc, site.id, chosen) : []
+    const siteJunction = site ? siteJunctionOf(doc, site.id) : undefined
+    // a yard no longer allowed (other circuits checked) falls back to the first allowed one, else the site junction
+    const yardPick = connect === 'J' ? undefined : yards.find(y => `Y:${y.yard.id}` === connect && !y.reason) ?? yards.find(y => !y.reason)
+    const target: RouteTarget | undefined = !placeRef ? undefined
+        : site ? (yardPick ? {kind: 'yard', yardId: yardPick.yard.id} : {kind: 'siteJunction', groupId: site.id})
+            : {kind: 'junction', junctionId: placeRef.id}
+    const routes = useMemo(() => target ? routeEndRoutes(doc, path.id, end, target) : [], [doc, path.id, end, placeValue, yardPick?.yard.id])  // eslint-disable-line react-hooks/exhaustive-deps
+    const route = routePick === NEW_PATH ? undefined : routes.find(r => routeKey(r) === routePick) ?? routes[0]
+    const freed = freedTakeOffs(doc, chosen.map(c => c.id), end)
+    const placeName = site ? site.groupName : placeRef ? refLabel(doc, placeRef) : '…'
+    const endName = refLabel(doc, endRef)
+    const passJunction = endRef?.kind === ConnectionJunctionKind.TRANSMISSION_JUNCTION ? doc.junctions.find(j => j.id === endRef.id)
+        : endRef ? siteJunctionOf(doc, endRef.id) : undefined
+    /** Where the circuits are spliced at that end: the junction it is, or the site's junction. */
+    const passLabel = endRef?.kind === ConnectionJunctionKind.TRANSMISSION_JUNCTION ? 'there' : `in the site junction ${passJunction ? passJunction.name ?? passJunction.id : '(created)'}`
+    const km = (n?: number) => n !== undefined ? ` · ${n.toFixed(1)} km` : ''
+    const routeLabel = (r: RouteEndRoute) => r.hops.length === 1
+        ? `Existing path ${r.hops[0].path.name} (${doc.circuits.filter(c => c.pathId === r.hops[0].path.id).length} circuits)${km(r.km)}`
+        : `Existing paths ${r.hops.map(h => h.path.name).join(' + ')} via ${r.via.map(j => j.name ?? j.id).join(', ')}${km(r.km)}`
+    const from = locationOfRef(doc, endRef), to = placeRef && locationOfRef(doc, placeRef)
+    const straightKm = from && to ? haversineKm(from.coords, to.coords) : undefined
+    const takeOffLabel = (t: SubstationTakeOffRecord) => `${t.lineName} (${refLabel(doc, {kind: ConnectionJunctionKind.SUBSTATION, id: t.substationId})})`
+
+    const run = () => {
+        if (!target || !chosen.length) return
+        const plan = buildRouteEndPlan(doc, path.id, chosen.map(c => c.id), end, target, {reusePathIds: route?.hops.map(h => h.path.id), removeFreedTakeOffs: removeTakeOffs})
+        if (plan.errors.length) return window.alert(plan.errors.join('\n'))
+        const created = plan.hops.find(h => h.created)
+        const summary = [
+            `Route ${plan.circuits.length} circuit(s) of path ${path.name} ${toEnd ? `to ${plan.targetLabel} (on past ${plan.endLabel})` : `from ${plan.targetLabel} (in past ${plan.endLabel})`}:`,
+            ...plan.circuits.map(x => `• ${x.original.name} → ${(toEnd ? [x.original, ...x.sections] : [...[...x.sections].reverse(), x.original]).map(c => c.name).join(' + ')}`),
+            `At ${plan.endLabel} each is spliced with its first new section${endRef?.kind === ConnectionJunctionKind.TRANSMISSION_JUNCTION ? '' : ` in the site junction ${plan.passJunction?.name ?? plan.passJunction?.id}`}.`,
+            created ? `The new sections run on new path ${created.path.name} (straight: edit its waypoints after).`
+                : `The new sections run on existing path${plan.hops.length === 1 ? '' : 's'} ${plan.hops.map(h => h.path.name).join(' + ')}${plan.via.length ? `, spliced at junction${plan.via.length === 1 ? '' : 's'} ${plan.via.map(j => j.name ?? j.id).join(', ')}` : ''}.`,
+            plan.createdJunctions.length ? `Site junction${plan.createdJunctions.length === 1 ? '' : 's'} created: ${plan.createdJunctions.map(j => j.name ?? j.id).join(', ')}.` : '',
+            plan.takeOffs.length ? `New take-offs: ${plan.takeOffs.map(t => t.lineName).join(', ')}.` : '',
+            plan.takeOffsRemoved ? `Take-off${plan.freedTakeOffs.length === 1 ? '' : 's'} ${plan.freedTakeOffs.map(takeOffLabel).join(', ')} ${plan.freedTakeOffs.length === 1 ? 'is' : 'are'} removed, with ${plan.freedTakeOffs.length === 1 ? 'its' : 'their'} wiring in the yard.` : '',
+            ...plan.lines.map(x => `Line ${x.line.name} now runs ${refLabel(doc, x.line.from)} → ${refLabel(doc, x.line.to)}${x.dropped.length ? `, without ${x.dropped.map(c => c.name).join(', ')}` : ''}.`),
+            ...plan.warnings.map(w => `⚠ ${w}`),
+        ].filter(Boolean).join('\n')
+        if (!window.confirm(`${summary}\n\nContinue?`)) return
+        const rename = plan.regenerate.changes.length > 0 && window.confirm(`Also rename the changed circuits, paths and lines by the model rules (${plan.regenerate.changes.length} change(s))?`)
+        if (!ed.apply(rename ? [...plan.ops, ...plan.regenerate.ops] : plan.ops)) return
+        onDone()
+        // show the first path the new sections run on (a new one may have been renamed)
+        const first = plan.hops[0]?.path.id
+        const pathId = (rename && plan.regenerate.changes.find(c => c.collection === 'paths' && c.id === first)?.newId) || first
+        if (pathId) {
+            ed.select({collection: 'paths', id: pathId})
+            locate?.({collection: 'paths', id: pathId})
+        }
+    }
+
+    if (!endRef) return <p className="small muted" style={{marginBottom: 0}}>Set the path's {toEnd ? 'TO' : 'FROM'} end first.</p>
+    return (
+        <>
+            <p className="small muted" style={{margin: '6px 0 0'}}>
+                {toEnd ? `The checked circuits no longer end at ${endName}: they run on past it, and their lines end at the place chosen here.`
+                    : `The checked circuits no longer start at ${endName}: they come in past it, and their lines start at the place chosen here.`}
+            </p>
+            <div className="form-grid" style={{gridTemplateColumns: '1fr', marginTop: 6}}>
+                <SelectField label={toEnd ? 'To' : 'From'} value={placeValue || undefined} options={placeOptions} allowEmpty emptyLabel="Choose a site or junction…" onChange={v => {
+                    setPlaceValue(v ?? '')
+                    setConnect('')
+                    setRoutePick(undefined)
+                }} hint={`At ${endName} each circuit is spliced ${passLabel} with a new section ${toEnd ? 'running on to it' : 'coming from it'}`}/>
+                {site && (
+                    <div className="field">
+                        <label>Connect at {site.groupName}</label>
+                        <select value={yardPick ? `Y:${yardPick.yard.id}` : 'J'} onChange={e => setConnect(e.target.value)}>
+                            {yards.map(y => <option key={y.yard.id} value={`Y:${y.yard.id}`} disabled={!!y.reason}>Into yard {y.yard.yardName} ({y.yard.voltage}){y.reason ? ` – ${y.reason}` : ''}</option>)}
+                            <option value="J">Site junction{siteJunction ? ` ${siteJunction.name ?? siteJunction.id}` : ' (created)'}: a node of its own, no yard</option>
+                        </select>
+                        <span className="hint">{yardPick ? 'Each new section enters the yard through a new take-off; the lines end at the yard.' : 'Each new section ends in a node of its own at the site junction; a line ends at a yard only, so that end of the lines is cleared.'}
+                            {yards.length > 0 && yards.every(y => y.reason) && chosen.length > 0 ? ` No yard here is at ${[...new Set(chosen.map(runVoltage))].join(' / ')}.` : ''}</span>
+                    </div>
+                )}
+                {placeRef && !site && <span className="hint">Each new section ends in a node of its own at the junction (join it to others there from the junction panel); a line ends at a yard only, so that end of the lines is cleared.</span>}
+                {target && (
+                    <div className="field">
+                        <label>Route {toEnd ? `${endName} – ${placeName}` : `${placeName} – ${endName}`}</label>
+                        <select value={route ? routeKey(route) : NEW_PATH} onChange={e => setRoutePick(e.target.value)}>
+                            {routes.map(r => <option key={routeKey(r)} value={routeKey(r)}>{routeLabel(r)}</option>)}
+                            <option value={NEW_PATH}>New straight path{km(straightKm)}</option>
+                        </select>
+                        <span className="hint">{routes.length > 0
+                            ? 'Existing paths already lead there (through line junctions when needed): the new sections run on them, one per path, spliced at each junction passed; on a path running the other way they follow its direction.'
+                            : 'No existing path leads there: a new straight path is created; edit its waypoints after.'}</span>
+                    </div>
+                )}
+                {freed.length > 0 && (
+                    <label className="small" style={{display: 'flex', gap: 6, alignItems: 'flex-start'}}>
+                        <input type="checkbox" checked={removeTakeOffs} onChange={e => setRemoveTakeOffs(e.target.checked)}/>
+                        <span>Remove take-off{freed.length === 1 ? '' : 's'} {freed.map(takeOffLabel).join(', ')}, left without a circuit (with {freed.length === 1 ? 'its' : 'their'} wiring in the yard)</span>
+                    </label>
+                )}
+            </div>
+            <div className="toolbar" style={{marginTop: 6}}>
+                <button type="button" className="small primary" disabled={!target || chosen.length === 0} onClick={run}>Route {chosen.length || ''} {toEnd ? 'to' : 'from'} {placeName}</button>
+            </div>
+        </>
     )
 }
 
