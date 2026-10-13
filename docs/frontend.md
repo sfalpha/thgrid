@@ -680,6 +680,20 @@ immediately.
   lines by the model rules is offered (reused paths and lines without both
   ends keep their names), and the first path of the new sections is
   selected.
+* **Swap from / to** (path panel, next to *Edit waypoints*; `swapPath.ts`,
+  `buildSwapPathPlan`): the path's FROM and TO exchange and its waypoints
+  are reversed (the route stays where it is); the circuits on it follow its
+  direction, their FROM and TO ends swap (the end markers in their
+  connections flip, they stay attached where they are), and the tower
+  positions they set are mirrored, since the towers are seen from the FROM
+  end (circuit 1 / 2, 3 / 4, … change sides, the towers come in the other
+  order), so the circuits keep hanging where they did; lines are not
+  touched. One journaled step after a summary, as for *Re-route lines*;
+  then renaming the path and its circuits by the model rules is offered
+  (`<from>-<to>` and the circuit names after it read the other way round),
+  listing each name and id change; the selection follows a new id. The
+  button waits while the name is being edited. A circuit alone on its path
+  swaps the same way from the circuit panel (the path turns with it).
 * **Duplicate paths** (`mergePaths.ts`): paths between the same two places,
   in either direction (`placeKey`: a site, its yards and its site junction
   are one place; `duplicatePathGroups`, `duplicatesOf`) and none of them with
@@ -792,7 +806,7 @@ immediately.
   the place, the circuits attached there and *detach*; moving or detaching
   an end detaches the circuit ends at the old place after a confirmation
   (`PathEndRow`; the same site / junction list feeds *+ Path* and *Re-route
-  lines*), edit waypoints, circuits on the path with
+  lines*), edit waypoints, *Swap from / to* (see above), circuits on the path with
   drill-down and ⚠ markers, each with its line(s) as links and a tower
   position select ("auto (T1 1 (top left))" or a tower and number;
   `CircuitsWithTower`), then, below the list, a collapsible *Towers* section
@@ -853,7 +867,10 @@ immediately.
   the rated voltage, bundle and conductor values with a template's, a
   deliberate step;
   rated and energized voltage, line, transmission path selector and path name, "new path for this
-  circuit", detach either end, swap the FROM and TO ends, delete; an
+  circuit", detach either end, swap the FROM and TO ends (alone on its path
+  the circuit turns the path with it, see *Swap from / to* above; on a
+  shared path only this circuit's ends swap and it runs against the path),
+  delete; an
   "Attention" notice appears when the energized voltage being edited differs
   from the connection at either end, with a "use …" button per end that
   adopts the connection voltage, and the circuit rows in the path, site,

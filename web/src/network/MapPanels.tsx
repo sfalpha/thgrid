@@ -29,7 +29,7 @@ import {junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming,
 import {buildCircuitGraph, fillLineEnds, formLine, guessLineEnds, LineEndCandidate, lineEndCandidates, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits} from '@shared/network/lines'
 import {yardNameForVoltage} from '@shared/models/naming'
 import {GENERATION_BADGES, GENERATION_LABELS, GenerationType} from '@shared/models/generation'
-import {draftNaming} from './RegenerateBox'
+import {collectionLabel, draftNaming} from './RegenerateBox'
 import {buildNewLinePlan, NewLineLegSpec, NewLineSpec, NewLineVia} from './lineWizard'
 import {buildJoinCircuitsPlan, joinableReason} from './joinCircuits'
 import {buildBypassPlan, passThroughs} from './bypassJunction'
@@ -37,6 +37,7 @@ import {buildMergeAllDuplicatesPlan, buildMergePathsPlan, duplicatePathGroups, d
 import {buildRouteViaPlan, pathsBetween, RouteVia, routeViaPathChoices, runVoltage, samePlace, yardChoices} from './routeVia'
 import {buildNewCircuitPlan, circuitPlaceOptions, NewCircuitConnect, NewCircuitEndPlan, NewCircuitSpec, suggestedCircuitVoltage, yardsOf} from './circuitWizard'
 import {buildRouteEndPlan, freedTakeOffs, routeEndRoutes, RouteEndRoute, routeKey, RouteTarget} from './routeEnd'
+import {buildSwapPathPlan} from './swapPath'
 import {TowerSlot, towerSlots} from './towerLayout'
 import {confirmDeleteLines} from './deleteLines'
 import {atPathEnd, pathEndOf} from '@shared/network/refs'
@@ -1159,9 +1160,43 @@ function PathEndRow({path, end, locate}: { path: TransmissionPathRecord; end: Ci
     )
 }
 
+/**
+ * Swapping a path's ends (`buildSwapPathPlan`: its circuits follow, FROM and TO swapped, tower positions mirrored),
+ * confirmed with a summary like the re-route operations, then whether to rename the path and its circuits by the model
+ * rules (`<from>-<to>` reads the other way round), listing the changes. The returned function gives the new ids of
+ * the renamed records (empty when not renamed), undefined when nothing was applied.
+ */
+function useSwapPathEnds() {
+    const ed = useNetworkEditor()
+    return (pathId: string): Map<string, string> | undefined => {
+        const doc = ed.doc
+        const path = doc.paths.find(p => p.id === pathId)
+        const plan = buildSwapPathPlan(doc, pathId)
+        if (!path || !plan.path || plan.errors.length) {
+            window.alert(plan.errors.join('\n'))
+            return undefined
+        }
+        const summary = [
+            `Swap the ends of path ${path.name}: it runs ${refLabel(doc, plan.path.from)} → ${refLabel(doc, plan.path.to)}${path.waypoints.length > 1 ? `, its ${path.waypoints.length} waypoints reversed` : ''}.`,
+            plan.circuits.length ? `${plan.circuits.length} circuit(s) follow its direction (FROM and TO swap; they stay attached where they are): ${plan.circuits.map(c => c.name).join(', ')}.` : '',
+            plan.mirrored.length ? `Tower positions mirrored (the towers are seen from the other end): ${plan.mirrored.map(c => c.name).join(', ')}.` : '',
+        ].filter(Boolean).join('\n')
+        if (!window.confirm(`${summary}\n\nContinue?`)) return undefined
+        const changes = plan.regenerate.changes
+        const rename = changes.length > 0 && window.confirm([
+            `Also rename the path and its circuits by the model rules (${changes.length} change(s))?`,
+            ...changes.slice(0, 15).map(c => `• ${collectionLabel(c.collection)} ${c.newName !== undefined ? `${c.oldName ?? c.id} → ${c.newName}` : c.id}${c.newId ? ` (id ${c.id} → ${c.newId})` : ''}`),
+            changes.length > 15 ? `…and ${changes.length - 15} more` : '',
+        ].filter(Boolean).join('\n'))
+        if (!ed.apply(rename ? [...plan.ops, ...plan.regenerate.ops] : plan.ops)) return undefined
+        return new Map(rename ? changes.filter(c => c.newId).map(c => [c.id, c.newId!]) : [])
+    }
+}
+
 function PathPanel({record, setMode, locate}: MapPanelsProps & { record: TransmissionPathRecord }) {
     const ed = useNetworkEditor()
     const d = useDraft(record)
+    const swapPathEnds = useSwapPathEnds()
     const circuits = ed.doc.circuits.filter(c => c.pathId === record.id)
     /** Id / name the model rules give this path (`<from>-<to>`). */
     const auto = draftNaming(ed.doc, 'paths', d.draft)
@@ -1193,6 +1228,10 @@ function PathPanel({record, setMode, locate}: MapPanelsProps & { record: Transmi
                 <p className="small muted">A path runs between two places, a site or a line junction. Moving or detaching an end also detaches the circuits there; circuits are re-attached from their own panel.</p>
                 <div className="toolbar" style={{marginTop: 10}}>
                     <button type="button" className="small" onClick={() => setMode('editWaypoints')}>Edit waypoints ({record.waypoints.length})</button>
+                    <button type="button" className="small" disabled={d.dirty || (!record.from && !record.to)} onClick={() => {
+                        const id = swapPathEnds(record.id)?.get(record.id)
+                        if (id) ed.select({collection: 'paths', id})
+                    }} title={d.dirty ? 'Apply or reset the edits first' : 'Exchange the FROM and TO ends and reverse the waypoints; the circuits on the path follow (their ends swap, tower positions mirrored); asks whether to rename by the model rules'}>Swap from / to</button>
                 </div>
             </div>
             <DuplicatePathsBox path={record} locate={locate}/>
@@ -2039,16 +2078,24 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
     /** Id / name the model rules give this circuit as edited (`<kV>_<site>_<site>_S<n>`). */
     const auto = draftNaming(ed.doc, 'circuits', d.draft)
 
-    /** Swaps the FROM and TO ends: flips the end markers in every connection that holds this circuit and reverses the waypoints. */
+    const swapPathEnds = useSwapPathEnds()
+    /**
+     * Swaps the FROM and TO ends. Alone on its path, the circuit turns the path with it (`useSwapPathEnds`: its ends and
+     * waypoints swap, and renames are offered); on a shared path only this circuit's end markers flip (in every
+     * connection that holds it), so it runs against the path while the others keep its direction.
+     */
     const swapEnds = () => {
+        if (route && routeUsers.length === 1) {
+            const id = swapPathEnds(route.id)?.get(record.id)
+            if (id) ed.select({collection: 'circuits', id})
+            return
+        }
         const flip = (t?: string) => (t === CIRCUIT_END_FROM ? CIRCUIT_END_TO : t === CIRCUIT_END_TO ? CIRCUIT_END_FROM : t)
         const ops: NetworkOp[] = []
         for (const conn of ed.doc.connections) {
             if (!conn.nodes.some(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === record.id)) continue
             ops.push({type: 'upsert', collection: 'connections', record: {...conn, nodes: conn.nodes.map(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === record.id ? {...n, terminal: flip(n.terminal)} : n)}})
         }
-        // Reverse the waypoints only when no other circuit shares the path (they keep their own direction).
-        if (route && route.waypoints.length > 1 && routeUsers.length === 1) ops.push({type: 'upsert', collection: 'paths', record: {...route, waypoints: [...route.waypoints].reverse()}})
         if (ops.length) ed.apply(ops)
     }
 
@@ -2075,7 +2122,9 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
                 {straightKm !== undefined && <><dt>Straight</dt><dd>{straightKm.toFixed(2)} km</dd></>}
             </dl>
             <div className="toolbar" style={{marginBottom: 10}}>
-                <button type="button" className="small" onClick={swapEnds} disabled={!from && !to} title="Exchange the FROM and TO ends (and reverse waypoints)">Swap from / to</button>
+                <button type="button" className="small" onClick={swapEnds} disabled={d.dirty || (!from && !to && !(route && routeUsers.length === 1 && (route.from || route.to)))}
+                        title={d.dirty ? 'Apply or reset the edits first' : route && routeUsers.length === 1 ? 'Exchange the FROM and TO ends; the path turns with the circuit (its ends and waypoints swap); asks whether to rename by the model rules'
+                            : route ? `Exchange the FROM and TO ends of this circuit only: it then runs against its path (${routeUsers.length - 1} other circuit(s) on it); "Swap from / to" on the path turns them all` : 'Exchange the FROM and TO ends'}>Swap from / to</button>
                 <button type="button" className={`small ${pickingTemplate ? 'active' : ''}`} onClick={() => setPickingTemplate(v => !v)} title="Pick a circuit template to replace the rated voltage, bundle and conductor values">Apply template…</button>
                 <button type="button" className="small" onClick={() => setMode('editWaypoints')} title="Edit the waypoints of this circuit's path on the map" disabled={!route}>Edit waypoints{route?.waypoints.length ? ` (${route.waypoints.length})` : ''}</button>
             </div>
