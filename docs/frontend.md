@@ -820,9 +820,12 @@ immediately.
   sloping down to the body, an earth wire at each end); per pair of circuits,
   1 / 2 on top, 3 / 4 below, three lattice cross-arms, one per phase (flat
   bottom chord, top chord rising to the body; the lowest reaches a little
-  further), an insulator string hanging from each tip with the conductor under
-  it, the left circuit's on the left, in the circuit's voltage colour, paler
-  and dashed when its position is assigned automatically, hollow where no
+  further), an insulator string hanging from each tip (solid; dotted grey
+  for a planned circuit; faint on an empty arm) with the conductor under it,
+  the left circuit's on the left, filled in the colour of the voltage it is
+  energized at (else its rated one) and outlined in its rated voltage's
+  colour, so a re-volted or de-energized circuit shows both, paler and
+  dashed when its position is assigned automatically, hollow where no
   circuit hangs, named under its conductors by its line without the voltage
   (else the tail of its name); a click on a circuit's conductors opens it);
   the circuit panel has *Line group* and *Circuit on the tower* fields; plus a ⚠ list of any other yard / junction a

@@ -74,7 +74,7 @@ import {
 } from './linkOps'
 import {describeNode} from './SubstationPanels'
 import {nextJunctionConnectionName} from '@shared/network/migrate'
-import {CircuitDraft, CreateDraft, endLocation, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, plannedVoltageColor, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
+import {CircuitDraft, CreateDraft, endLocation, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, PLANNED_COLOR, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
 import {JunctionSymbol, VoltageSymbol} from './symbols'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 
@@ -1750,7 +1750,10 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
         const text = line ? line.name.replace(/^[^_]*KV(?:DC)?_/i, '') : /_(S\d+)$/.exec(c.name)?.[1] ?? c.name.slice(-8)
         return text.length > 14 ? `${text.slice(0, 13)}…` : text
     }
-    const colorOf = (c: TransmissionCircuitRecord) => c.planned ? plannedVoltageColor(c.energizedVoltage ?? c.voltage) : voltageColor(c.energizedVoltage ?? c.voltage)
+    /** Colour of the voltage a circuit is operated at: the energized one, else the rated one (the conductors' fill). */
+    const energizedColor = (c: TransmissionCircuitRecord) => voltageColor(c.energizedVoltage ?? c.voltage)
+    /** Colour of the rated voltage, else the energized one (the conductors' outline). */
+    const ratedColor = (c: TransmissionCircuitRecord) => voltageColor(c.voltage ?? c.energizedVoltage)
     const thin = {stroke: 'currentColor', strokeWidth: 0.6, fill: 'none', opacity: 0.75}
     const chord = {stroke: 'currentColor', strokeWidth: 1.3, fill: 'none'}
 
@@ -1811,7 +1814,7 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
                 {Array.from({length: levels}, (_, i) => i + 1).map(level => [1, 2].map(side => {
                     const s = slots.find(t => t.group === g && t.level === level && t.side === side)
                     const dir = side === 1 ? -1 : 1
-                    const color = s ? colorOf(s.circuit) : undefined
+                    const fill = s ? energizedColor(s.circuit) : undefined, outline = s ? ratedColor(s.circuit) : undefined
                     const lowest = armY(level, PHASES - 1)
                     return (
                         <g key={`${level}-${side}`} style={{cursor: s ? 'pointer' : undefined}} onClick={() => s && onPick(s.circuit)}>
@@ -1821,14 +1824,17 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
                                 return (
                                     <g key={p}>
                                         {arm(y, dir, reach(p), `a${p}`)}
-                                        {/* insulator string: a stack of discs hanging from the tip */}
-                                        <line x1={x} y1={y} x2={x} y2={y + INSULATOR} stroke="currentColor" strokeWidth={2.4} strokeDasharray="1.6 0.9"/>
-                                        {s ? <circle cx={x} cy={y + INSULATOR + 3} r={3.2} fill={color} fillOpacity={s.auto ? 0.55 : 1} stroke={color} strokeWidth={1} strokeDasharray={s.auto ? '2 1.5' : undefined}/>
+                                        {/* insulator string hanging from the tip: solid, dotted grey for a planned circuit, faint on an empty arm */}
+                                        {s?.circuit.planned
+                                            ? <line x1={x} y1={y + 1} x2={x} y2={y + INSULATOR} stroke={PLANNED_COLOR} strokeWidth={2} strokeLinecap="round" strokeDasharray="0 3.2"/>
+                                            : <line x1={x} y1={y} x2={x} y2={y + INSULATOR} stroke="currentColor" strokeWidth={1.6} opacity={s ? 1 : 0.45}/>}
+                                        {/* the conductor: filled in the energized voltage's colour, outlined in the rated one's */}
+                                        {s ? <circle cx={x} cy={y + INSULATOR + 3.4} r={3.2} fill={fill} fillOpacity={s.auto ? 0.55 : 1} stroke={outline} strokeWidth={1.8} strokeDasharray={s.auto ? '2 1.5' : undefined}/>
                                             : <circle cx={x} cy={y + INSULATOR + 3} r={2.8} fill="none" stroke="currentColor" strokeDasharray="1.5 1.5" opacity={0.45}/>}
                                     </g>
                                 )
                             })}
-                            {s && <text x={cx + dir * reach(PHASES - 1)} y={lowest + INSULATOR + 13} fontSize={8} fontWeight={700} textAnchor="middle" fill={color}
+                            {s && <text x={cx + dir * reach(PHASES - 1)} y={lowest + INSULATOR + 14} fontSize={8} fontWeight={700} textAnchor="middle" fill={fill}
                                         style={{paintOrder: 'stroke', stroke: 'var(--panel, #fff)', strokeWidth: 3}}>{label(s.circuit)}</text>}
                         </g>
                     )
