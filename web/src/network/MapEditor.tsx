@@ -15,6 +15,7 @@ import {GENERATION_BADGES, GENERATION_LABELS, GENERATION_SITE_COLOR} from '@shar
 import {useNetworkEditor} from './NetworkContext'
 import {useSideWidth} from '../hooks/useSideWidth'
 import {MapPanels} from './MapPanels'
+import {JunctionArrival, JunctionDrawing, layoutJunction, trimStartAtCircle} from './junctionLayout'
 import {CircuitDraft, CreateDraft, dropDraftEnd, EMPTY_CIRCUIT_DRAFT, EMPTY_LINE_DRAFT, EMPTY_PATH_DRAFT, endLocation, LineDraft, lineDraftJunctionClick, lineDraftPlaces, lineDraftRemove, lineDraftSiteClick, PathDraft, pickDraftEnd, JUNCTION_COLOR, JUNCTION_FILL_OPACITY, junctionSize, locationOfRef, Mode, plannedVoltageColor, mapDetailScale, SITE_MARKER_MIN_PX, SITE_MARKER_PX, SITE_SIZE_RANK, siteSize, voltageColor, voltageKv, voltageSymbolSvg, WaypointEdit} from './mapUtil'
 import type {Selection} from './NetworkContext'
 import type {MetaResponse} from '../api/client'
@@ -81,28 +82,6 @@ interface RingPort {
     color: string
     weight: number
     junctionId: string
-}
-
-/**
- * Cuts the start of a polyline (layer pixels) where it leaves the circle of
- * radius `r` around `center`: the part inside is dropped and the crossing
- * becomes the new first point. Undefined when the line never leaves the circle.
- */
-function trimStartAtCircle(p: L.Point[], center: L.Point, r: number): { points: L.Point[]; port: L.Point; dir: L.Point } | undefined {
-    for (let i = 0; i < p.length - 1; i++) {
-        const a = p[i], b = p[i + 1]
-        if (b.distanceTo(center) < r) continue
-        // a + t (b - a) on the circle; the larger root is where the segment leaves it
-        const dx = b.x - a.x, dy = b.y - a.y, fx = a.x - center.x, fy = a.y - center.y
-        const A = dx * dx + dy * dy, B = 2 * (fx * dx + fy * dy), C = fx * fx + fy * fy - r * r
-        const disc = B * B - 4 * A * C
-        if (A === 0 || disc < 0) return undefined
-        const t = Math.min(1, Math.max(0, (-B + Math.sqrt(disc)) / (2 * A)))
-        const port = L.point(a.x + dx * t, a.y + dy * t)
-        const len = Math.sqrt(A)
-        return {points: [port, ...p.slice(i + 1)], port, dir: L.point(-dx / len, -dy / len)}
-    }
-    return undefined
 }
 
 /** Unit direction a polyline (layer pixels) leaves its first point in; undefined when it does not move away from it. */
@@ -259,10 +238,15 @@ function layoutLanes(doc: NetworkDocument, siblings: Map<string, string[]>, junc
                 for (const g of free) if (g.ids.length > 1 && g.ids.length <= MAX_PARALLEL && g.mean !== undefined) place(g, slotsByAngle(g.ids.length, g.a.u))
             }
         }
+        // each corridor laid out is fixed right away, so the next ones order their lanes after its actual lanes (not only
+        // after the direction its path leaves in) and the connectors between them run parallel instead of crossing
         layoutUnit(anchor)
         for (const a of anchor) fixed.add(a.key)
-        for (const unit of units) if (unit !== anchor) layoutUnit(unit)
-        for (const a of list) fixed.add(a.key)
+        for (const unit of units) {
+            if (unit === anchor) continue
+            layoutUnit(unit)
+            for (const a of unit) fixed.add(a.key)
+        }
     }
     return {order, shift}
 }
@@ -322,36 +306,6 @@ function groupedView(doc: NetworkDocument, grouped: Map<string, string>): Networ
         circuits: doc.circuits.filter(c => !inside(endPlace(c, CIRCUIT_END_FROM), endPlace(c, CIRCUIT_END_TO))),
         paths: doc.paths.filter(p => !inside(placeOf(p.from), placeOf(p.to))),
     }
-}
-
-/** Points of a cubic Bézier curve (layer pixels). */
-function bezierPoints(p0: L.Point, p1: L.Point, p2: L.Point, p3: L.Point, steps = 16): L.Point[] {
-    const out: L.Point[] = []
-    for (let i = 0; i <= steps; i++) {
-        const t = i / steps, u = 1 - t
-        const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
-        out.push(L.point(a * p0.x + b * p1.x + c * p2.x + d * p3.x, a * p0.y + b * p1.y + c * p2.y + d * p3.y))
-    }
-    return out
-}
-
-/** A smooth connector between two ports: leaves each port along its direction into the ring. */
-function portCurve(a: RingPort, b: RingPort, factor = PORT_CURVE_FACTOR): L.Point[] {
-    const k = a.point.distanceTo(b.point) * factor
-    return bezierPoints(a.point, a.point.add(a.dir.multiplyBy(k)), b.point.add(b.dir.multiplyBy(k)), b.point)
-}
-
-/** How far (share of the distance between the ports) a connector's curve keeps the direction of its lanes; 0 = straight. */
-const PORT_CURVE_FACTOR = 0.45
-
-/** Whether two polylines (layer pixels) cross. */
-function polylinesCross(p: L.Point[], q: L.Point[]): boolean {
-    const side = (a: L.Point, b: L.Point, c: L.Point) => Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x))
-    for (let i = 0; i < p.length - 1; i++) for (let j = 0; j < q.length - 1; j++) {
-        const a = p[i], b = p[i + 1], c = q[j], d = q[j + 1]
-        if (side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0) return true
-    }
-    return false
 }
 
 const esc = (v: string) => v.replace(/[&<>"]/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch] as string))
@@ -958,16 +912,45 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 if (siteId) siteCover.set(siteRoot(siteId), Math.max(siteCover.get(siteRoot(siteId)) ?? 0, reach))
             }
         }
-        // Junction areas: a circle around the junction, its diameter twice the width of the widest bundle of parallel lanes running
-        // in (outer edge to outer edge, so the radius equals that width); the lanes stop on it and the connections are drawn inside.
+        // Junction areas: a circle around the junction, just wide enough for every lane running in to reach it (the outer edge
+        // of the outermost lane, plus a pixel); the lanes stop on it and the connections are drawn inside, the circle growing
+        // where they need more room (layoutJunction).
         const areaRadius = new Map<string, number>()
         for (const j of ringJunctions.values()) areaRadius.set(j.id, JUNCTION_RING_MIN_PX * detail)
         for (const c of doc.circuits) {
             const route = doc.paths.find(p => p.id === c.pathId)
-            const bundleWidth = 2 * (Math.abs(offsetOf(c)) + weightOf(c) / 2)
+            const reach = Math.abs(offsetOf(c)) + weightOf(c) / 2 + 1
             for (const end of [CIRCUIT_END_FROM, CIRCUIT_END_TO]) {
                 const jid = ringOf(c.id, end, route)
-                if (jid) areaRadius.set(jid, Math.max(areaRadius.get(jid)!, bundleWidth))
+                if (jid) areaRadius.set(jid, Math.max(areaRadius.get(jid)!, reach))
+            }
+        }
+        // Connections drawn inside the junction circles (toggle "Planned" hides planned ones), each with its circuit ends.
+        const drawnConnections = doc.connections.filter(conn => conn.scope === ConnectionScope.TRANSMISSION && conn.junction.kind === ConnectionJunctionKind.TRANSMISSION_JUNCTION
+            && ringJunctions.has(conn.junction.id) && (features.planned || !conn.planned))
+        const endKeys = (conn: ConnectionRecord) => conn.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT).map(n => `${n.id}:${n.terminal}`)
+        // Each junction's circle and connectors (layoutJunction): parallel connectors keep the lane spacing, and the circle
+        // grows where they, or the lanes of different paths, would otherwise touch. Merged far out there are no connectors.
+        const junctionDrawings = new Map<string, JunctionDrawing>()
+        if (!mergeLanes) {
+            const arrivalsAt = new Map<string, JunctionArrival[]>()
+            for (const unit of units) {
+                const c = unit.circuits[0]
+                const {route, pts} = circuitRoute(c)
+                if (pts.length < 2) continue
+                const px = offsetPoints(pts.map(ll => map.latLngToLayerPoint(L.latLng(ll))), unit.offset)
+                for (const end of [CIRCUIT_END_FROM, CIRCUIT_END_TO]) {
+                    const jid = ringOf(c.id, end, route)
+                    if (jid) arrivalsAt.set(jid, [...(arrivalsAt.get(jid) ?? []), {key: `${c.id}:${end}`, group: laneGroup(c), px: end === CIRCUIT_END_FROM ? px : [...px].reverse(), weight: unit.weight}])
+                }
+            }
+            for (const [jid, arrivals] of arrivalsAt) {
+                const center = map.latLngToLayerPoint(toLatLng(ringJunctions.get(jid)!.coords))
+                const conns = drawnConnections.filter(c => c.junction.id === jid).map(c => ({id: c.id, keys: endKeys(c)}))
+                // zoomed out (lanes not at full spacing) the circle keeps its size: connectors may overlap there
+                const fit = layoutJunction(center, areaRadius.get(jid)!, arrivals, conns, PARALLEL_SPACING_PX * detail, detail >= 1)
+                areaRadius.set(jid, fit.radius)
+                for (const [id, d] of fit.drawings) junctionDrawings.set(id, d)
             }
         }
         const ports = new Map<string, RingPort>()
@@ -1076,68 +1059,32 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             area.addTo(layer)
         }
 
-        // Inside the junctions: a connection joining two circuit ends is one curve between their ports, one joining three or
+        // Inside the junctions (layoutJunction): a connection joining two circuit ends is one connector between their ports,
+        // straight or with two bends of at most 90° each, parallel connectors keeping the lane spacing; one joining three or
         // more is a spoke from each port to a dot (lines crossing without a dot are not joined); a circuit end with no
         // connection is a short stub ending in an open circle. Clicking any of them selects the junction (its panel lists the
         // connections), also while the areas are hidden; a connection selected in the panel is highlighted here.
         const circuitName = (id: string) => doc.circuits.find(x => x.id === id)?.name ?? id
-        const drawnConnections = doc.connections.filter(conn => conn.scope === ConnectionScope.TRANSMISSION && conn.junction.kind === ConnectionJunctionKind.TRANSMISSION_JUNCTION
-            && ringJunctions.has(conn.junction.id) && (features.planned || !conn.planned))
-        const endKeys = (conn: ConnectionRecord) => conn.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT).map(n => `${n.id}:${n.terminal}`)
-        // A two-end connector is a curve leaving each port along its lane. Where two at one junction would cross (lanes arriving
-        // at a narrow angle make a curve swing out past its neighbours), both are flattened step by step towards the straight
-        // chord between their ports; the lanes are ordered so the chords do not cross (layoutLanes), so this settles.
-        const curveFactor = new Map<string, number>()
-        {
-            const byJunction = new Map<string, { id: string; a: RingPort; b: RingPort }[]>()
-            for (const conn of drawnConnections) {
-                const here = endKeys(conn).map(k => ports.get(k))
-                if (here.length !== 2 || !here[0] || !here[1]) continue
-                byJunction.set(conn.junction.id, [...(byJunction.get(conn.junction.id) ?? []), {id: conn.id, a: here[0], b: here[1]}])
-            }
-            for (const list of byJunction.values()) {
-                for (const x of list) curveFactor.set(x.id, PORT_CURVE_FACTOR)
-                for (let round = 0; round < 6; round++) {
-                    const curves = list.map(x => portCurve(x.a, x.b, curveFactor.get(x.id)!))
-                    const crossing = new Set<string>()
-                    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-                        if (polylinesCross(curves[i], curves[j])) crossing.add(list[i].id).add(list[j].id)
-                    }
-                    if (!crossing.size) break
-                    for (const id of crossing) curveFactor.set(id, round >= 4 ? 0 : curveFactor.get(id)! / 2)
-                }
-            }
-        }
         const joined = new Set<string>()
         for (const conn of drawnConnections) {
             const keys = endKeys(conn)
             keys.forEach(k => joined.add(k))
-            const here = keys.map(k => ports.get(k)).filter((p): p is RingPort => !!p)
-            if (!here.length) continue
-            const center = map.latLngToLayerPoint(toLatLng(ringJunctions.get(conn.junction.id)!.coords))
-            const r = areaRadius.get(conn.junction.id)!
-            const pieces: { pts: L.Point[]; port: RingPort }[] = []
-            let dot: L.Point | undefined
-            if (keys.length === 2 && here.length === 2) pieces.push({pts: portCurve(here[0], here[1], curveFactor.get(conn.id)), port: here[0]})
-            else {
-                // the node: between the ports' centroid and the ring centre (one drawn port: a little way in from it)
-                dot = here.length === 1 ? here[0].point.add(here[0].dir.multiplyBy(r * 0.5))
-                    : here.reduce((s, p) => s.add(p.point), L.point(0, 0)).divideBy(here.length).add(center).divideBy(2)
-                for (const p of here) pieces.push({pts: bezierPoints(p.point, p.point.add(p.dir.multiplyBy(p.point.distanceTo(dot) * 0.5)), dot, dot, 8), port: p})
-            }
+            const drawing = junctionDrawings.get(conn.id)
+            const pieces = (drawing?.lines ?? []).map(l => ({pts: l.pts, port: ports.get(l.key)})).filter((p): p is { pts: L.Point[]; port: RingPort } => !!p.port)
+            if (!pieces.length) continue
             const selectedConn = sel?.collection === 'connections' && sel.id === conn.id
             const tip = `${esc(conn.name ?? conn.id)}${conn.planned ? ' · planned' : ''} · ${keys.map(k => esc(circuitName(k.slice(0, k.lastIndexOf(':'))))).join(' + ')}`
 
             for (const piece of pieces) {
                 const ll = toLL(piece.pts)
                 if (selectedConn) L.polyline(ll, {color: '#ffd21f', weight: piece.port.weight + 6, opacity: .9, interactive: false}).addTo(layer)
-                const curve = L.polyline(ll, {color: piece.port.color, weight: piece.port.weight, opacity: .95, lineCap: 'round', dashArray: conn.planned ? `1 ${piece.port.weight * 2 + 3}` : undefined})
-                curve.bindTooltip(tip, {sticky: true, className: 'map-label'})
-                onJunction(curve, conn.junction.id)
-                curve.addTo(layer)
+                const line = L.polyline(ll, {color: piece.port.color, weight: piece.port.weight, opacity: .95, lineCap: 'round', dashArray: conn.planned ? `1 ${piece.port.weight * 2 + 3}` : undefined})
+                line.bindTooltip(tip, {sticky: true, className: 'map-label'})
+                onJunction(line, conn.junction.id)
+                line.addTo(layer)
             }
-            if (dot) {
-                const node = L.circleMarker(map.layerPointToLatLng(dot), {radius: Math.max(3, here[0].weight / 2 + 1.5), stroke: false, fillColor: here[0].color, fillOpacity: 1})
+            if (drawing?.dot) {
+                const node = L.circleMarker(map.layerPointToLatLng(drawing.dot), {radius: Math.max(3, pieces[0].port.weight / 2 + 1.5), stroke: false, fillColor: pieces[0].port.color, fillOpacity: 1})
                 node.bindTooltip(tip, {sticky: true, className: 'map-label'})
                 onJunction(node, conn.junction.id)
                 node.addTo(layer)

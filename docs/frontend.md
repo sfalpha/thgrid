@@ -370,25 +370,46 @@ immediately.
   out; zoomed in further it is drawn on its own again. Junctions (other than a site's own
   junction) are a see-through blue area drawn behind the lines (a Leaflet
   pane `junctionAreas`, z-index 390, under the overlay pane; `JUNCTION_COLOR`
-  in `mapUtil.ts`): a circle whose diameter is twice the width of the widest
-  bundle of parallel lanes running in (outer edge to outer edge, so its
-  radius equals that width; at least 8 px at full detail, scaled down when zoomed out like the sites). The lanes stop on the circle
-  (`trimStartAtCircle` in `MapEditor.tsx`). The hover
+  in `mapUtil.ts`): a circle just wide enough for every lane running in to
+  reach it (its radius is the outer edge of the outermost lane plus a pixel;
+  at least 8 px at full detail, scaled down when zoomed out like the sites),
+  grown where its connectors need the room (below). The lanes stop on the circle
+  (`trimStartAtCircle` in `junctionLayout.ts`). The hover
   summary still names a size tier, the same four tiers as sites, classed by
   the path ending there that carries the most circuits (`junctionSize`, more
   than 2 / 4 / 6 circuits make it medium / large / x-large, else small).
   Where a lane meets the area's edge is
   its *port*, and the connections
-  at the junction are drawn inside the area: a connection joining two
-  circuit ends is one smooth curve between their ports (`portCurve`; where two
-  such curves at one junction would cross, as when lanes arrive at a narrow
-  angle and a curve swings out past its neighbours, both are flattened step
-  by step towards the straight chord between their ports, which the lane
-  order keeps from crossing; `polylinesCross`) (leaving each port in
-  the lane's direction), one joining three or more ends (or one whose other
-  ends are not drawn) is a spoke from each port to a dot (lines that cross
-  without a dot are not joined), and a circuit end with no connection there
-  is a short stub ending in an open circle. Connectors take the circuit
+  at the junction are drawn inside the area (`layoutJunction` in
+  `junctionLayout.ts`): a connection joining two circuit ends is a
+  connector of straight segments with at most two bends, none sharper than
+  a right angle: in along its lane, across, out along the other lane
+  (`routeConnectorPairs`). The connectors between the same two paths are a
+  bundle routed together, each offset by its lanes' place, so parallel
+  connectors keep the lane spacing and never touch (pairs whose lanes swap
+  sides cross, as they must). A bundle that turns bends twice, half the
+  way each. One that bends gently (3° to 25°) bends once, where its lanes'
+  lines meet, so it turns only the way it turns (`gentleCorner`; parallel
+  pairs meet on one line across the bundle and stay parallel); a pair whose
+  lines meet outside the circle (lanes shifted across) jogs at 45° onto the
+  far lane's line instead, and so does the whole bundle when single bends
+  would cross more often than its jogs (pairs whose lanes swap sides meet
+  far apart). One that runs nearly straight through is straight when its
+  lanes line up, else jogs across at 45°. Bends and jogs sit where the bundle has the
+  circle to itself, so its long straight run lies parallel to the other
+  connectors of a path it shares (`groupSize`). From full detail on (zoom
+  11) the circle grows (a pixel per step, up to 4 times its size from the
+  lanes) while that leaves fewer places where connectors of different
+  connections overlap without crossing (their edges closer than 1 px), bends
+  leave the circle, or the lanes of different paths overlap at its edge
+  (paths at a tight angle); it keeps the smallest radius with the fewest, so
+  it is just large enough. Zoomed out further it keeps its size and
+  connectors may overlap. A connection joining three or more ends
+  is a spoke from each port (in along its lane, then straight) to a dot
+  between the ports and the centre (lines that cross without a dot are not
+  joined); one whose other ends are not drawn (an open end) has its dot one
+  lane spacing inside its port (at most half the radius), and a circuit end with no connection there is a short
+  stub ending in an open circle. Connectors take the circuit
   colour (dotted when the connection is planned); hovering one names the
   connection and its circuits. Clicking the area, a connector or a stub
   inside it selects the junction (or picks it as an end in "+ Circuit" /
@@ -457,7 +478,8 @@ immediately.
   circle; a partner not laid out yet counts by the direction its path leaves
   in). Junctions are visited busiest first; at each, the corridor with a path
   laid out already (else the one with the most circuits) anchors and the
-  others follow; a path is laid out once, at the first junction that reaches
+  others follow, each fixed as soon as it is laid out so the next ones order
+  their lanes after its actual lanes (connectors between them run parallel); a path is laid out once, at the first junction that reaches
   it, so chains of junctions follow on. Zoomed far out, once the lanes are
   closer than a 4-conductor bundle line is wide (5 px × `mapDetailScale` < 3.5 px,
   below about zoom 8.7; `mergeLanes`), the circuits of a path are drawn as
