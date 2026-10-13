@@ -13,6 +13,8 @@
     --warn-bg: #fff6e0;
     --ok: #1b7f3b;
     --ok-bg: #e7f6ec;
+    --info: #1f5fc4;
+    --info-bg: #e8f0fd;
     --code-bg: #eef1f5;
     --radius: 6px;
     --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -34,6 +36,8 @@
         --warn-bg: #3a3012;
         --ok: #4cc26a;
         --ok-bg: #16311f;
+        --info: #7fb0ff;
+        --info-bg: #15233a;
         --code-bg: #10141a;
     }
 }
@@ -445,6 +449,16 @@ td input, td select {
 .notice.error {
     background: var(--danger-bg);
     color: var(--danger);
+}
+
+/* informational: worth knowing, nothing to fix */
+.notice.info {
+    background: var(--info-bg);
+    color: var(--info);
+}
+
+.info-text {
+    color: var(--info);
 }
 
 .tag {

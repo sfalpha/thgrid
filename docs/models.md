@@ -46,7 +46,8 @@ These already existed and are unchanged. Summary for orientation:
 
 | Enum | Values | File |
 |---|---|---|
-| `TransmissionVoltage` | `AC500KV, AC230KV, AC115KV, AC69KV, AC33KV, AC24KV, AC22KV, AC400V, DC300KV, 0V` (`DE_ENERGIZED`: built but unused, or a planned line partly built; shown as "0V (De-Energized)", drawn black) | `transmission.voltage.ts` |
+| `TransmissionVoltage` | `AC500KV, AC230KV, AC115KV, AC69KV, AC33KV, AC24KV, AC22KV, AC400V, DC300KV, 0V` (`DE_ENERGIZED`: built but unused, or a planned line partly built; shown as "0V (De-Energized)", drawn black; every value is listed in `TRANSMISSION_VOLTAGE_DETAILS` with its value in kV, class and current type, for numerical and type lookups: `voltageDetail`, `voltageValueKv`, `transmissionTypeOf`, and `energizedVsRated` / `withinRating` comparing a circuit's energized voltage with its rated one: below it or de-energized is fine, above it or another current type is not) | `transmission.voltage.ts` |
+| `TransmissionType` | `AC, DC, N` (N: neither, de-energized 0 V) | `transmission.voltage.ts` |
 | `TransmissionWireType` | `GENERIC, AAC, ACSR/GA, ACSR/AW, HTLS/INVAR, HTLS/ACCC` (HTLS = high-temperature low-sag, Invar core or ACCC composite core; `GENERIC` with size 0 SQMM is the conductor of a circuit whose conductor is unknown, `GENERIC_CONDUCTOR`) | `transmission.conductor.ts` |
 | `TransmissionWireUnit` | `SQMM, MCM, AWG` | `transmission.conductor.ts` |
 | `TransformerWindingSide` | `PRIMARY, SECONDARY, AUXILIARY` (older files with `HIGH_SIDE` / `LOW_SIDE` are read as such) | `transformer.ts` |
@@ -107,7 +108,7 @@ sanitises tokens to `[A-Za-z0-9_.-]`).
 | `SubstationCircuit` | `SCC` | `SCC_<site>_<yard>_<line \| X<n>>` | line name / `X<n>` |
 | `SubstationBay` | `SBA` | `SBA_<site>_<yard>_<bay>` | `BAY_<bay>` |
 | `SubstationBus` | `SBU` | `SBU_<site>_<yard>_<type>_BUS_<n>` | `<type>_BUS_<n>` (`TRANSFER_BUS`) |
-| `SubstationTakeOff` | `STO` | `STO_<site>_<yard>_<line>` | line name; the line name itself defaults to `<voltage>_<target site code>_L<n>` (`230KV_CTI_L1`, `300KVDC_CTI_L1`; the voltage token is the yard's, as in the yard name), `n` numbering the yard's lines toward that site (`takeOffLineName` picks the next free number, counting older `<code>_L<n>` names too) |
+| `SubstationTakeOff` | `STO` | `STO_<site>_<yard>_<line>` | line name; the line name itself defaults to `<voltage>_<target site code>_L<n>` (`230KV_CTI_L1`, `300KVDC_CTI_L1`; the voltage token is the take-off's: its circuit's, else the yard's, as in the yard name; regenerating a take-off whose line name follows the rule re-derives that token, `ruleLineName`: `230KV_SA2_L1` at 115 kV becomes `115KV_SA2_L1`), `n` numbering the yard's lines toward that site (`takeOffLineName` picks the next free number, counting older `<code>_L<n>` names too) |
 | `SubstationEquipment` | per type (`SCB`, `SMT`, `SDS`, `SGS`, `SSA`, `SCT`, `SPT`, `SKT`, `SKW`, `SSV`, `SSR`, `SFU`; `SXX` unknown, `STF` generic transformer) | `<prefix>_<site>_<yard>_<code>` | equipment code |
 | `TransmissionJunction` | `TJT` | `TJT_<name>` | `JT<n>` |
 | `TransmissionPath` | `TPA` | `TPA_<from>_<to>[_<n>]` | `<from>-<to>[ (n)]`; the ends are sites (by code) or junctions, a route is not specific to a voltage (`CTI-TRD`, `TPA_CTI_TRD`), `n` numbering the routes between the same two names |
@@ -492,7 +493,7 @@ it unique via `uniqueId()`.
 | `SubstationBusRecord` | `SubstationBus` | `substationId`, `busType`, `row` | `busNumber`, `bayNumber`, `voltage`, `current` |
 | `SubstationBayRecord` | `SubstationBay` | `substationId`, `bayNumber`, `column` | `voltage`, `current` |
 | `SubstationEquipmentRecord` | `SubstationEquipment` + subclasses | `substationId`, `bayId`, `code`, `equipmentType`, `terminals[]`, `row` | `brand`, `model`, `template` (POWER_TRANSFORMER ref), `attributes`, `takeOffId` (drawn in that take-off's take-off column, right of the bay column, at its `row`), `lineSide` / `busTie` (purpose tags, from bay templates; drawn as ↑ / ⇔ after the code; line-side equipment is drawn in the bay's line (take-off) column even without `takeOffId`; a power transformer belongs there like a take-off and gets a warning while unflagged, as does one wired to equipment that is not line side or to a bus; files written before migration v5 carry `takeOff`) |
-| `SubstationTakeOffRecord` | `SubstationTakeOff` | `substationId`, `lineName` | `bayId`, `row`, `takeOffColumn` (drawn in the bay's take-off column; unset = bay column, with a warning), `voltage` (set when the line leaves at another voltage than the yard's, e.g. the secondary or auxiliary side of a transformer in the yard: it colours the take-off, is the voltage of the node a circuit is energized at when attached (`connectionVoltage`), prefixes the rule line name, and is what a transformer winding wired to it is expected to have) |
+| `SubstationTakeOffRecord` | `SubstationTakeOff` | `substationId`, `lineName` | `bayId`, `row`, `takeOffColumn` (drawn in the bay's take-off column; unset = bay column, with a warning). No voltage of its own: a take-off is at the voltage of its circuit (`takeOffVoltage` / `takeOffCircuit` in `refs.ts`: the TRANSMISSION connection holding it, where its line leaves, else the in-yard connection it is wired into), else its yard's; set on the circuit when the line leaves at another voltage than the yard's (the secondary or auxiliary side of a transformer in the yard), it colours the take-off, is the voltage a circuit attached is energized at (`connectionVoltage`), prefixes the rule line name, and is what a transformer winding wired to it is expected to have (files written before migration v8 carried `voltage` on the take-off) |
 | `TransmissionJunctionRecord` | `TransmissionJunction` | `coords` | `name`, `groupId` (set on a *site junction*: the one junction a substation site may own, named after the site by default and moving with it; circuits are joined or teed there without entering a yard, and a connection there counts as being at the site for path ends) |
 | `TransmissionPathRecord` | `TransmissionPath` | `name`, `waypoints[]` | `from`, `to` (`ConnectionJunctionRef` of kind SUBSTATION_GROUP or TRANSMISSION_JUNCTION: the site or junction where the route starts / ends; a route is not specific to a voltage, so circuits of any yard of the site may share it) |
 | `TransmissionCircuitRecord` | `TransmissionCircuit` | `name`, `pathId` | `voltage` (rated), `energizedVoltage` (operated at; set from the connection when an end is attached), `bundle`, `conductor` (`{ size, unit, type, code? }`, copied from the conductor template), `current`, `lengthKm`, `lineGroup` / `groupCircuit` (tower position, a drawing hint: the line group is one tower line, several running side by side with 1 on the left, and the circuit's number on it, 1 / 2 on the top pair of arms, left / right looking from the path's FROM end, 3 / 4 on the pair below, and so on; unset = assigned when drawn, two per new tower, see `web/src/network/towerLayout.ts`; a position taken twice on one path warns) (no template reference is stored; `conductorTemplateId` is a deprecated leftover of older documents) |
@@ -529,8 +530,8 @@ graphically:
   operated at. Whenever a circuit end is attached (creation, *Attach*, moving
   an end into another node) the editor sets `energizedVoltage` to the voltage
   of the connection it joins: the node's `voltage` at a junction, the yard
-  voltage at a substation (a new take-off connection is created with the
-  yard voltage). It stays editable; the circuit panel and the lists flag a
+  voltage at a substation (a new take-off connection is created at the
+  take-off's voltage, its circuit's else the yard's). It stays editable; the circuit panel and the lists flag a
   circuit whose energized voltage differs from a connection at either end.
   Documents written before this field existed get it filled from the first
   connected end on load (`migrateNetworkDocument`). On the map a circuit is
@@ -732,6 +733,10 @@ and are upgraded on their next save. Current migrations:
 * v6: transformer equipment without `windings` gets them derived from its
   terminals.
 * v7: documents without a `generationUnits` collection get an empty one.
+* v8: a take-off's `voltage` moves to its circuit: the TRANSMISSION connection
+  holding it (overriding the voltage that had), else the in-yard connection it
+  is wired into (unless that has one already); a free take-off wired nowhere
+  keeps its yard's voltage (noted). The field is removed.
 
 ### 6.9 Storage and versions
 

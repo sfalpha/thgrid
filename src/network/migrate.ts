@@ -9,11 +9,13 @@ import {CIRCUIT_END_FROM, CIRCUIT_END_TO, ConnectionJunctionKind, ConnectionJunc
 import {uniqueId} from "./ops";
 import {defaultWindingVoltage, isTransformerType, terminalsFromWindings, TransformerWindingRecord} from "./records";
 import {TransformerWindingSide, TransformerWindingTapChanger, TransformerWindingWiring} from "../models/transformer";
-import {pathEndOf} from "./refs";
+import {pathEndOf, takeOffCircuit, takeOffVoltage} from "./refs";
 import {CoordinatesProps} from "../models/coordinates";
 import {TransmissionVoltage} from "../models/transmission.voltage";
 import {junctionConnectionNaming} from "./naming";
 import {genericConductor} from "../models/transmission.conductor";
+
+export {takeOffCircuit, takeOffVoltage}
 
 export interface MigrationResult {
     doc: NetworkDocument
@@ -31,19 +33,14 @@ export function isJunctionConnection(c: ConnectionRecord): boolean {
 }
 
 /**
- * Voltage a circuit end takes when it joins `conn`: the node's own voltage,
- * else the voltage of the yard when the connection sits at a substation.
+ * Voltage a circuit end takes when it joins `conn`: the node's own voltage; at a substation else its take-off's
+ * (`takeOffVoltage`), else the yard's.
  */
 export function connectionVoltage(doc: NetworkDocument, conn: ConnectionRecord): TransmissionVoltage | undefined {
     if (conn.voltage) return conn.voltage
     if (conn.junction?.kind === ConnectionJunctionKind.SUBSTATION) {
-        // a take-off with its own voltage (secondary / auxiliary side of a transformer) sets the node's voltage, else the yard's
-        for (const n of conn.nodes) {
-            if (n.kind !== NetworkNodeKind.SUBSTATION_TAKE_OFF) continue
-            const v = doc.takeOffs.find(t => t.id === n.id)?.voltage
-            if (v) return v
-        }
-        return doc.substations.find(s => s.id === conn.junction.id)?.voltage
+        const takeOff = conn.nodes.find(n => n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF)
+        return (takeOff && takeOffVoltage(doc, takeOff.id)) ?? doc.substations.find(s => s.id === conn.junction.id)?.voltage
     }
     return undefined
 }
@@ -79,6 +76,39 @@ export function migrateNetworkDocument(input: NetworkDocument): MigrationResult 
     if (!Array.isArray(doc.yardConnections)) {
         doc = {...doc, yardConnections: []}
         changes.push('added empty "yardConnections" collection')
+    }
+    // v8 → a take-off carries no voltage of its own: it moves to the take-off's circuit (the TRANSMISSION connection
+    // holding it, which it overrides; else the in-yard connection it is wired into, unless that has one already);
+    // a free take-off wired nowhere keeps its yard's voltage.
+    const voltaged = (doc.takeOffs ?? []).filter(t => (t as { voltage?: TransmissionVoltage }).voltage)
+    if (voltaged.length || (doc.takeOffs ?? []).some(t => 'voltage' in t)) {
+        let connections = doc.connections
+        const setVoltage = (id: string, voltage: TransmissionVoltage) => {
+            connections = connections.map(c => c.id === id ? {...c, voltage} : c)
+        }
+        for (const t of voltaged) {
+            const v = (t as { voltage?: TransmissionVoltage }).voltage!
+            const circuit = takeOffCircuit({...doc, connections}, t.id)
+            if (circuit.line) {
+                if (circuit.line.voltage !== v) {
+                    setVoltage(circuit.line.id, v)
+                    changes.push(`take-off ${t.lineName}: its voltage ${v} moved to its circuit ${circuit.line.name ?? circuit.line.id}${circuit.line.voltage ? ` (was ${circuit.line.voltage})` : ''}`)
+                }
+            } else if (circuit.yard.length) {
+                if (!circuit.yard.some(c => c.voltage)) {
+                    setVoltage(circuit.yard[0].id, v)
+                    changes.push(`take-off ${t.lineName}: its voltage ${v} moved to its in-yard circuit ${circuit.yard[0].name ?? circuit.yard[0].id}`)
+                }
+            } else if (v !== doc.substations.find(s => s.id === t.substationId)?.voltage) {
+                changes.push(`take-off ${t.lineName}: its voltage ${v} was dropped (no circuit attached, not wired in the yard): it is at its yard's voltage until a circuit of it sets one`)
+            }
+        }
+        doc = {...doc, connections, takeOffs: doc.takeOffs.map(t => {
+            if (!('voltage' in t)) return t
+            const {voltage: _, ...rest} = t as typeof t & { voltage?: TransmissionVoltage }
+            return rest
+        })}
+        changes.push('take-offs: voltage moved to their circuits')
     }
     // v7 → generation sites list their generating units in their own collection.
     if (!Array.isArray(doc.generationUnits)) {

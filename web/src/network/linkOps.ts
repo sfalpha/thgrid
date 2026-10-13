@@ -22,23 +22,25 @@ import {
 } from '@shared/network/records'
 import {applyOps, NetworkOp, pickId} from '@shared/network/ops'
 import {atPathEnd} from '@shared/network/refs'
-import {circuitEndConnection, connectionVoltage} from '@shared/network/migrate'
+import {circuitEndConnection, connectionVoltage, takeOffCircuit, takeOffVoltage} from '@shared/network/migrate'
 import {junctionConnectionNaming, takeOffConnectionNaming} from '@shared/network/naming'
-import {TransmissionVoltage} from '@shared/models/transmission.voltage'
+import {energizedVsRated, TransmissionVoltage, transmissionTypeOf} from '@shared/models/transmission.voltage'
+import {effectiveVoltage, nodeRunningVoltage, runningVoltagesAt} from '@shared/network/lines'
 
-export {circuitEndConnection, connectionVoltage}
+export {circuitEndConnection, connectionVoltage, takeOffCircuit, takeOffVoltage}
 
 const circuitNode = (circuitId: string, end: CircuitEnd): NetworkNodeRef => ({kind: NetworkNodeKind.TRANSMISSION_CIRCUIT, id: circuitId, terminal: end})
 
 /**
  * Op that sets the circuit's energized voltage to the voltage of the
- * connection it has just joined (`conn` as it will be after the attach).
- * Nothing when the circuit is unknown here, the voltage is unknown, or it
- * already matches.
+ * connection it has just joined (`conn` as it will be after the attach):
+ * a yard's (or its take-off's), or at a junction the one the circuits
+ * already there run at (`nodeRunningVoltage`). Nothing when the circuit is
+ * unknown here, the voltage is unknown, or it already matches.
  */
 export function energizeCircuitOps(doc: NetworkDocument, circuitId: string, conn: ConnectionRecord): NetworkOp[] {
     const circuit = doc.circuits.find(c => c.id === circuitId)
-    const v = connectionVoltage(doc, conn)
+    const v = nodeRunningVoltage(doc, conn, circuitId)
     // a de-energized circuit (0 V) stays de-energized wherever its ends are attached
     if (!circuit || !v || circuit.energizedVoltage === v || circuit.energizedVoltage === TransmissionVoltage.DE_ENERGIZED) return []
     return [{type: 'upsert', collection: 'circuits', record: {...circuit, energizedVoltage: v}}]
@@ -94,12 +96,26 @@ export interface NewConnectionOptions {
     newId?: string
     /** Name of the new connection at a junction; `<junction>_<n>` when empty. */
     newName?: string
+    /** Voltage of a new take-off connection (the take-off's circuit) when it is to differ from the take-off's, e.g. a secondary / auxiliary line; the take-off's otherwise. */
+    voltage?: TransmissionVoltage
 }
 
 /**
- * Joins the circuit end to the take-off's connection (created, at the yard
- * voltage, when the take-off is still free) and energizes the circuit at the
- * connection's voltage. The circuit must be detached at that end.
+ * Ops that set a take-off's voltage, which lives on its circuit (`takeOffCircuit`): the TRANSMISSION connection holding
+ * it, else the in-yard connection it is wired into; `undefined` clears it (the yard's applies). Undefined when the
+ * take-off has no circuit yet (free and not wired in the yard): it is at the yard's voltage.
+ */
+export function setTakeOffVoltageOps(doc: NetworkDocument, takeOffId: string, voltage: TransmissionVoltage | undefined): NetworkOp[] | undefined {
+    const circuit = takeOffCircuit(doc, takeOffId)
+    const target = circuit.line ?? circuit.yard.find(c => c.voltage) ?? circuit.yard[0]
+    if (!target) return undefined
+    return target.voltage === voltage ? [] : [{type: 'upsert', collection: 'connections', record: {...target, voltage}}]
+}
+
+/**
+ * Joins the circuit end to the take-off's connection (created when the take-off
+ * is still free, at the take-off's voltage or `opts.voltage`) and energizes the
+ * circuit at the connection's voltage. The circuit must be detached at that end.
  */
 export function attachCircuitEndToTakeOffOps(doc: NetworkDocument, circuitId: string, end: CircuitEnd, takeOffId: string, opts: NewConnectionOptions = {}): NetworkOp[] {
     const takeOff = doc.takeOffs.find(t => t.id === takeOffId)
@@ -111,7 +127,7 @@ export function attachCircuitEndToTakeOffOps(doc: NetworkDocument, circuitId: st
         id: pickId(doc, opts.newId, naming.id), name: opts.newName?.trim() || naming.name, scope: ConnectionScope.TRANSMISSION,
         junction: {kind: ConnectionJunctionKind.SUBSTATION, id: takeOff.substationId},
         nodes: [{kind: NetworkNodeKind.SUBSTATION_TAKE_OFF, id: takeOffId}, node],
-        voltage: takeOff.voltage ?? doc.substations.find(s => s.id === takeOff.substationId)?.voltage,
+        voltage: opts.voltage ?? takeOffVoltage(doc, takeOffId),
     }
     return [{type: 'upsert', collection: 'connections', record}, ...energizeCircuitOps(doc, circuitId, record)]
 }
@@ -271,26 +287,66 @@ function applyLocal(doc: NetworkDocument, ops: NetworkOp[]): NetworkDocument {
 
 export interface EnergizedMismatch {
     end: CircuitEnd
-    /** Voltage of the connection at that end. */
+    /** Voltage the end's connection runs at: the take-off's or the yard's, or the circuits joined at a junction node. */
     expected: TransmissionVoltage
     connection: ConnectionRecord
 }
 
+/** Something worth knowing about a circuit end's voltage that needs no fixing (shown in blue). */
+export interface EndVoltageInfo {
+    end: CircuitEnd
+    connection: ConnectionRecord
+    text: string
+}
+
 /**
- * Connected ends whose connection voltage differs from `energized` (the
- * circuit's energized voltage, or a draft value being edited). An end whose
- * connection voltage is unknown never mismatches.
+ * The voltage at each connected end against the circuit's effective one (`energized` and `rated` as being edited, else
+ * the record's: energized, else rated); a de-energized circuit (0 V) has nothing to compare. `mismatches`, warnings: at
+ * a yard the take-off's or the yard's voltage differs; at a junction the circuits it joins there run at another voltage
+ * (or at several). `info`: at a junction, the circuits it joins at the same voltage, and a node whose nominal voltage
+ * differs (the nominal voltage does not restrict the circuits there).
  */
-export function energizedMismatches(doc: NetworkDocument, circuitId: string, energized?: TransmissionVoltage): EnergizedMismatch[] {
-    const out: EnergizedMismatch[] = []
+export function endVoltageNotes(doc: NetworkDocument, circuitId: string, energized?: TransmissionVoltage, rated?: TransmissionVoltage): { mismatches: EnergizedMismatch[]; info: EndVoltageInfo[] } {
+    const out: { mismatches: EnergizedMismatch[]; info: EndVoltageInfo[] } = {mismatches: [], info: []}
+    const circuit = doc.circuits.find(c => c.id === circuitId)
+    const effective = energized ?? rated ?? effectiveVoltage(circuit)
     // de-energized on purpose (0 V): not a mismatch with the live nodes it stays attached to
-    if (energized === TransmissionVoltage.DE_ENERGIZED) return out
+    if (!effective || effective === TransmissionVoltage.DE_ENERGIZED) return out
     for (const end of [CIRCUIT_END_FROM, CIRCUIT_END_TO] as CircuitEnd[]) {
         const connection = circuitEndConnection(doc, circuitId, end)
-        const expected = connection && connectionVoltage(doc, connection)
-        if (connection && expected && expected !== energized) out.push({end, expected, connection})
+        if (!connection) continue
+        if (connection.junction.kind === ConnectionJunctionKind.SUBSTATION) {
+            const expected = connectionVoltage(doc, connection)
+            if (expected && expected !== effective) out.mismatches.push({end, expected, connection})
+            continue
+        }
+        const node = connection.name ?? connection.id
+        const {voltages, circuits} = runningVoltagesAt(doc, connection, [circuitId])
+        const other = voltages.find(v => v !== effective)
+        if (other) {
+            out.mismatches.push({end, expected: other, connection})
+            continue
+        }
+        const nominal = connection.voltage && connection.voltage !== effective ? `; node ${node} is nominally ${connection.voltage}` : ''
+        if (circuits.length) out.info.push({end, connection, text: `joins ${circuits.map(c => c.name).join(', ')} at node ${node}, all at ${effective}${nominal}`})
+        else if (nominal) out.info.push({end, connection, text: `ends open at node ${node} (no other circuit there)${nominal}`})
     }
     return out
+}
+
+/** The ends whose connection runs at another voltage than the circuit (warnings; see `endVoltageNotes`). */
+export const energizedMismatches = (doc: NetworkDocument, circuitId: string, energized?: TransmissionVoltage, rated?: TransmissionVoltage): EnergizedMismatch[] =>
+    endVoltageNotes(doc, circuitId, energized, rated).mismatches
+
+/**
+ * A circuit energized beyond what it is rated for, as a short warning: above its rating, or at another current type
+ * (AC on a DC circuit or the other way round). Running below its rating, or de-energized, is fine (undefined).
+ */
+export function ratingProblem(rated?: TransmissionVoltage, energized?: TransmissionVoltage): string | undefined {
+    const how = energizedVsRated(rated, energized)
+    if (how === 'typeMismatch') return `energized ${energized} (${transmissionTypeOf(energized)}) on a ${rated} (${transmissionTypeOf(rated)}) circuit`
+    if (how === 'higher') return `energized ${energized} above its rated ${rated}`
+    return undefined
 }
 
 export interface CircuitStatus {
@@ -308,12 +364,13 @@ export function circuitStatus(doc: NetworkDocument, circuitId: string): CircuitS
     const from = circuitEndRef(doc, circuitId, CIRCUIT_END_FROM)
     const to = circuitEndRef(doc, circuitId, CIRCUIT_END_TO)
     const mismatch = !!path && ((!!from && !!path.from && !atPathEnd(doc, from, path.from)) || (!!to && !!path.to && !atPathEnd(doc, to, path.to)))
-    return {looseFrom: !from, looseTo: !to, mismatch, energized: c ? energizedMismatches(doc, c.id, c.energizedVoltage) : []}
+    return {looseFrom: !from, looseTo: !to, mismatch, energized: c ? energizedMismatches(doc, c.id) : []}
 }
 
 /**
  * Short attention markers for lists: loose ends, an end away from its path, energized voltage differing from a
- * connection, a circuit that is a section of no line; a circuit without a path that is not attached at both ends
+ * connection (`energizedMismatches`) or beyond the rating (`ratingProblem`; running below it is fine), a circuit that is
+ * a section of no line; a circuit without a path that is not attached at both ends
  * cannot be drawn on the map.
  */
 export function circuitWarnings(doc: NetworkDocument, circuitId: string): string[] {
@@ -324,7 +381,8 @@ export function circuitWarnings(doc: NetworkDocument, circuitId: string): string
         st.looseFrom ? `loose ${CIRCUIT_END_FROM}` : '',
         st.looseTo ? `loose ${CIRCUIT_END_TO}` : '',
         st.mismatch ? 'end differs from path' : '',
-        ...st.energized.map(m => `energized ${c?.energizedVoltage ?? 'not set'} ≠ ${m.expected} at ${m.end}`),
+        ...st.energized.map(m => `energized ${effectiveVoltage(c) ?? 'not set'} ≠ ${m.expected} at ${m.end}`),
+        ratingProblem(c?.voltage, c?.energizedVoltage) ?? '',
         doc.lines.some(l => l.circuitIds.includes(circuitId)) ? '' : 'no line',
     ].filter(Boolean)
 }

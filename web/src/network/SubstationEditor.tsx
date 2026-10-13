@@ -22,7 +22,7 @@ import {
     SubstationYardConnectionRecord,
 } from '@shared/network/records'
 import {cascadeDeleteOps, NetworkOp, pickId, uniqueId} from '@shared/network/ops'
-import {describeTakeOffUsage, takeOffUsage} from './linkOps'
+import {describeTakeOffUsage, takeOffCircuit, takeOffUsage} from './linkOps'
 import {bayNaming, busNaming, equipmentNaming, takeOffLineName, takeOffNaming, yardWiringNaming} from '@shared/network/naming'
 import {NewIdField} from './IdEditor'
 import {hrefTo} from '../hooks/useHashRoute'
@@ -359,6 +359,11 @@ export function SubstationEditor({meta, substationId, navigate}: SubstationEdito
     // Everything in a planned yard is grey; otherwise coloured by voltage.
     const vc = (voltage?: string, planned?: boolean) => ({'--vc': planned || yard.planned ? PLANNED_COLOR : voltageColor(voltage ?? yard.voltage)} as React.CSSProperties)
     const bayVoltage = (bayId?: string) => layout.bays.find(b => b.id === bayId)?.voltage ?? yard.voltage
+    /** A take-off's voltage: its circuit's (where its line leaves, else the wiring it is in), else its bay's. */
+    const takeOffColour = (t: { id: string; bayId?: string }) => {
+        const circuit = takeOffCircuit(ed.doc, t.id)
+        return circuit.line?.voltage ?? circuit.yard.find(c => c.voltage)?.voltage ?? bayVoltage(t.bayId)
+    }
     const connectionVoltage = (c: ConnectionRecord): string => {
         // the connection's own voltage first; else the buses, take-offs and terminals on it, the bay, the yard
         if (c.voltage) return c.voltage
@@ -368,10 +373,10 @@ export function SubstationEditor({meta, substationId, navigate}: SubstationEdito
                 if (v) return v
             }
         }
-        // a take-off with its own voltage (secondary / auxiliary line) colours the node
+        // a take-off whose line leaves at another voltage (secondary / auxiliary line) colours the node
         for (const n of c.nodes) {
             if (n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF) {
-                const v = layout.takeOffs.find(t => t.id === n.id)?.voltage
+                const v = takeOffCircuit(ed.doc, n.id).line?.voltage
                 if (v) return v
             }
         }
@@ -509,7 +514,7 @@ export function SubstationEditor({meta, substationId, navigate}: SubstationEdito
                         const cls = pick && sameNode(pick, node) ? 'picked' : used.has(nodeKey(node)) ? 'used' : ''
                         return (
                             <g key={t.id} transform={`translate(${t.x},${t.y})`} className={`takeoff ${isSel('takeOffs', t.id) ? 'selected' : ''} ${transmissionTakeOffs.has(t.id) ? 'linked' : ''} ${t.planned ? 'planned' : ''}`}
-                               style={vc(t.voltage ?? bayVoltage(t.bayId), t.planned)}>
+                               style={vc(takeOffColour(t), t.planned)}>
                                 {(() => {
                                     // I shape: the terminal at one end, the arrow head at the other (up by default, down when wired from above)
                                     const sgn = t.up ? -1 : 1
@@ -524,7 +529,7 @@ export function SubstationEditor({meta, substationId, navigate}: SubstationEdito
                                         </g>
                                     )
                                 })()}
-                                <circle cx={0} cy={t.up ? TAKEOFF_RUN - 2 : -(TAKEOFF_RUN - 2)} r={5} className={`terminal ${cls}`} style={vc(wiredVoltage.get(nodeKey(node)) ?? t.voltage ?? bayVoltage(t.bayId), t.planned)} onClick={ev => {
+                                <circle cx={0} cy={t.up ? TAKEOFF_RUN - 2 : -(TAKEOFF_RUN - 2)} r={5} className={`terminal ${cls}`} style={vc(wiredVoltage.get(nodeKey(node)) ?? takeOffColour(t), t.planned)} onClick={ev => {
                                     ev.stopPropagation()
                                     onNode(node, {collection: 'takeOffs', id: t.id})
                                 }}>

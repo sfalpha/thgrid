@@ -20,10 +20,43 @@ import {
     ConnectionScope,
     NetworkDocument,
     NetworkNodeKind,
+    TransmissionCircuitRecord,
     TransmissionLineRecord,
 } from "./records";
-import {TransmissionVoltage} from "../models/transmission.voltage";
+import {TransmissionVoltage, withinRating} from "../models/transmission.voltage";
 import {endpointToken} from "./naming";
+import {connectionVoltage} from "./migrate";
+import {NetworkOp} from "./ops";
+
+/** The voltage a circuit runs at: its energized one, else its rated one. */
+export const effectiveVoltage = (c?: { energizedVoltage?: TransmissionVoltage; voltage?: TransmissionVoltage }): TransmissionVoltage | undefined => c?.energizedVoltage ?? c?.voltage
+
+/**
+ * What the circuits at a node run at, leaving out `except` (a circuit joining it, or the sections of a line formed
+ * through it) and de-energized ones: their distinct effective voltages, and the circuits. At a junction this is the
+ * voltage the node runs at; its own `voltage` is nominal, informational.
+ */
+export function runningVoltagesAt(doc: NetworkDocument, conn: ConnectionRecord, except: Iterable<string> = []): { voltages: TransmissionVoltage[]; circuits: TransmissionCircuitRecord[] } {
+    const skip = new Set(except)
+    const circuits = conn.nodes
+        .filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && !skip.has(n.id))
+        .map(n => doc.circuits.find(c => c.id === n.id))
+        .filter((c): c is TransmissionCircuitRecord => !!c && effectiveVoltage(c) !== undefined && effectiveVoltage(c) !== TransmissionVoltage.DE_ENERGIZED)
+    const unique = circuits.filter((c, i) => circuits.findIndex(x => x.id === c.id) === i)
+    return {voltages: [...new Set(unique.map(c => effectiveVoltage(c)!))], circuits: unique}
+}
+
+/**
+ * The voltage a node runs at for a circuit joining it (`exceptCircuitId`): at a yard its take-off's or the yard's; at a
+ * junction the one the other circuits there run at (undefined when they disagree), else, with no live circuit there,
+ * its nominal voltage unless that is 0 V.
+ */
+export function nodeRunningVoltage(doc: NetworkDocument, conn: ConnectionRecord, exceptCircuitId?: string): TransmissionVoltage | undefined {
+    if (conn.junction.kind === ConnectionJunctionKind.SUBSTATION) return connectionVoltage(doc, conn)
+    const {voltages} = runningVoltagesAt(doc, conn, exceptCircuitId ? [exceptCircuitId] : [])
+    if (voltages.length) return voltages.length === 1 ? voltages[0] : undefined
+    return conn.voltage && conn.voltage !== TransmissionVoltage.DE_ENERGIZED ? conn.voltage : undefined
+}
 
 export interface CircuitGraph {
     /** TRANSMISSION connections by id. */
@@ -230,7 +263,10 @@ export interface FormedLine {
     circuitIds: string[]
     from?: ConnectionJunctionRef
     to?: ConnectionJunctionRef
+    /** The voltage the line runs at (its sections are energized at it): what its ends and tees bring, else 0 V (de-energized). */
     voltage?: TransmissionVoltage
+    /** Junction nodes along the line (where sections meet, and an end at a junction): set to the line's voltage. */
+    junctionNodeIds: string[]
     /** Why these two ends cannot form a line; undefined when they can. */
     problem?: string
     /** Lines through the circuit it would duplicate, lie within or contain (a tie that only shares part is fine). */
@@ -241,11 +277,14 @@ export interface FormedLine {
  * The line two candidates (one per side, see `lineEndCandidates`) form through the circuit, and whether it may be
  * formed: not when the two ends are the same place or the two sides share a section, nor when it would duplicate, lie
  * within or contain a line that already uses this circuit (lines that only share part, a tie at a tee, are fine).
+ * Its voltage is what reaches it: a yard end at its take-off's or yard's voltage, and the circuits outside the line at
+ * its junction nodes (a tie, or a junction end tied in) at theirs. They must agree (a yard at another voltage is
+ * refused) and every section must be rated for it (the same current type, no more than its rating). With nothing
+ * reaching it, junction to junction or to open ends, the line is de-energized (0 V).
  */
-export function formLine(doc: NetworkDocument, circuitId: string, from: LineEndCandidate, to: LineEndCandidate): FormedLine {
+export function formLine(doc: NetworkDocument, circuitId: string, from: LineEndCandidate, to: LineEndCandidate, graph = buildCircuitGraph(doc)): FormedLine {
     const circuitIds = [...[...from.chain].reverse(), circuitId, ...to.chain]
-    const circuit = doc.circuits.find(c => c.id === circuitId)
-    const out: FormedLine = {circuitIds, from: from.ref, to: to.ref, voltage: circuit?.energizedVoltage ?? circuit?.voltage, overlaps: []}
+    const out: FormedLine = {circuitIds, from: from.ref, to: to.ref, junctionNodeIds: [], overlaps: []}
     if (from.ref && to.ref && sameRef(from.ref, to.ref)) out.problem = 'both ends are the same place'
     else if (new Set(circuitIds).size !== circuitIds.length) out.problem = 'the two sides share a section'
     const set = new Set(circuitIds)
@@ -255,7 +294,56 @@ export function formLine(doc: NetworkDocument, circuitId: string, from: LineEndC
         const l = out.overlaps[0]
         out.problem = l.circuitIds.length === circuitIds.length ? `already line ${l.name}` : l.circuitIds.length > circuitIds.length ? `within line ${l.name}` : `would contain line ${l.name}: extend that line instead`
     }
+
+    // the nodes along the line: its ends, and where consecutive sections meet
+    const nodeIds = new Set<string>([from.connectionId, to.connectionId].filter((x): x is string => !!x))
+    for (let i = 1; i < circuitIds.length; i++) {
+        const a: (string | undefined)[] = graph.ends.get(circuitIds[i - 1]) ?? [], b: (string | undefined)[] = graph.ends.get(circuitIds[i]) ?? []
+        for (const id of a) if (id && b.includes(id)) nodeIds.add(id)
+    }
+    // what reaches it: the yards at its ends, the circuits outside it at its junction nodes
+    const sources: { voltage: TransmissionVoltage; where: string }[] = []
+    for (const id of nodeIds) {
+        const conn = graph.nodes.get(id)
+        if (!conn) continue
+        if (isYardNode(conn)) {
+            const v = connectionVoltage(doc, conn)
+            if (v) sources.push({voltage: v, where: endpointToken(doc, conn.junction) ?? conn.junction.id})
+            continue
+        }
+        out.junctionNodeIds.push(id)
+        for (const c of runningVoltagesAt(doc, conn, set).circuits) sources.push({voltage: effectiveVoltage(c)!, where: c.name})
+    }
+    const voltages = [...new Set(sources.map(s => s.voltage))]
+    out.voltage = voltages.length === 1 ? voltages[0] : voltages.length === 0 ? TransmissionVoltage.DE_ENERGIZED : undefined
+    if (out.problem) return out
+    if (voltages.length > 1) {
+        const yards = sources.filter(s => [from.connectionId, to.connectionId].some(id => id && isYardNode(graph.nodes.get(id))))
+        out.problem = `the ends are at different voltages: ${voltages.map(v => `${v} (${[...new Set(sources.filter(s => s.voltage === v).map(s => s.where))].join(', ')})`).join(' and ')}`
+        if (!yards.length) out.problem = out.problem.replace('the ends are', 'it would join circuits')
+        return out
+    }
+    const overRated = circuitIds.map(id => doc.circuits.find(c => c.id === id)).find(c => c && !withinRating(c.voltage, out.voltage))
+    if (overRated) out.problem = `${out.voltage} is beyond the rating of section ${overRated.name} (${overRated.voltage})`
     return out
+}
+
+/**
+ * Ops that run a formed line at its voltage: each section energized at it and the junction nodes along it set to it
+ * (nothing for what already matches). The line record itself is the caller's.
+ */
+export function formedLineVoltageOps(doc: NetworkDocument, formed: FormedLine): NetworkOp[] {
+    const ops: NetworkOp[] = []
+    if (!formed.voltage) return ops
+    for (const id of new Set(formed.circuitIds)) {
+        const c = doc.circuits.find(x => x.id === id)
+        if (c && c.energizedVoltage !== formed.voltage) ops.push({type: 'upsert', collection: 'circuits', record: {...c, energizedVoltage: formed.voltage}})
+    }
+    for (const id of formed.junctionNodeIds) {
+        const conn = doc.connections.find(x => x.id === id)
+        if (conn && conn.voltage !== formed.voltage) ops.push({type: 'upsert', collection: 'connections', record: {...conn, voltage: formed.voltage}})
+    }
+    return ops
 }
 
 /**

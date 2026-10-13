@@ -17,6 +17,6 @@ export function IssueList({issues, title}: { issues: ValidationIssue[]; title?: 
         </div>
     )
 }
-export function Notice({kind, children}: { kind: 'ok' | 'warn' | 'error'; children: React.ReactNode }) {
+export function Notice({kind, children}: { kind: 'ok' | 'info' | 'warn' | 'error'; children: React.ReactNode }) {
     return <div className={`notice ${kind}`}>{children}</div>
 }

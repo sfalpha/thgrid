@@ -6,10 +6,9 @@ import {TransmissionVoltage} from "./transmission.voltage";
 
 export interface SubstationTakeOffProps extends SubstationUnitProps {
     bay: SubstationBay
+    /** The take-off's circuit: its voltage is the take-off's (the yard's when it has none), e.g. the secondary or auxiliary side of a transformer in the yard. */
     circuit?: SubstationCircuit
     lineName?: string
-    /** Voltage of the line leaving here when it is not the yard's (the secondary or auxiliary side of a transformer in the yard). */
-    voltage?: TransmissionVoltage
 }
 
 export interface SubstationTakeOffNamingHints extends SubstationUnitNamingHints {
@@ -19,7 +18,7 @@ export interface SubstationTakeOffNamingHints extends SubstationUnitNamingHints 
     lineName?: string
     /** Site code of the substation the line goes to, e.g. "CTI". */
     targetCode?: string
-    /** Voltage of the yard the line leaves from; leads the line name as `230KV` / `300KVDC`. */
+    /** Voltage of the take-off (its circuit's, else its yard's); leads the line name as `230KV` / `300KVDC`. */
     voltage?: string
     /** 1-based number of the line toward that site from this yard (defaults to 1). */
     sequence?: number
@@ -50,16 +49,19 @@ export class SubstationTakeOff extends SubstationUnit {
     }
 
     public bay: SubstationBay
+    /** The circuit behind the take-off: it carries the take-off's voltage (unset: the yard's). */
     public circuit: SubstationCircuit
-    /** Set when the line leaves at another voltage than the yard's; the yard voltage applies otherwise. */
-    public voltage?: TransmissionVoltage
 
     constructor(props: SubstationTakeOffProps) {
-        const hints: SubstationTakeOffNamingHints = {name: props.name, groupName: props.bay?.substation?.substationGroup?.name, yardName: props.bay?.substation?.name, lineName: props.lineName, voltage: props.voltage ?? props.bay?.substation?.voltage}
+        const hints: SubstationTakeOffNamingHints = {name: props.name, groupName: props.bay?.substation?.substationGroup?.name, yardName: props.bay?.substation?.name, lineName: props.lineName, voltage: props.circuit?.voltage ?? props.bay?.substation?.voltage}
         super({...props, id: props.id || SubstationTakeOff.defaultId(hints), name: props.name || SubstationTakeOff.defaultName(hints)})
         this.bay = props.bay
-        this.voltage = props.voltage
         // The circuit behind the take-off carries the same line name.
         this.circuit = props.circuit ?? new SubstationCircuit({id: SubstationCircuit.defaultId(hints), name: SubstationCircuit.defaultName(hints)})
+    }
+
+    /** Voltage of the take-off: its circuit's, else its yard's. */
+    get voltage(): TransmissionVoltage | undefined {
+        return this.circuit.voltage ?? this.bay?.substation?.voltage
     }
 }

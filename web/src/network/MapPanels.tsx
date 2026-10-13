@@ -1,5 +1,5 @@
 import {Dispatch, ReactNode, SetStateAction, useEffect, useMemo, useRef, useState} from 'react'
-import {TransmissionVoltage} from '@shared/models/transmission.voltage'
+import {energizedVsRated, TransmissionVoltage} from '@shared/models/transmission.voltage'
 import {TemplateKind} from '@shared/templates/template'
 import type {TransmissionCircuitTemplateData} from '@shared/templates/transmission.circuit'
 import type {TransmissionConductorTemplate} from '@shared/templates/transmission.conductor'
@@ -27,7 +27,7 @@ import {
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, NetworkOp, pickId, uniqueId} from '@shared/network/ops'
 import {generationUnitNaming, junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
-import {buildCircuitGraph, fillLineEnds, formLine, guessLineEnds, LineEndCandidate, lineEndCandidates, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits} from '@shared/network/lines'
+import {buildCircuitGraph, fillLineEnds, formedLineVoltageOps, formLine, guessLineEnds, LineEndCandidate, lineEndCandidates, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits} from '@shared/network/lines'
 import {yardNameForVoltage} from '@shared/models/naming'
 import {GENERATION_BADGES, GENERATION_LABELS, GenerationType} from '@shared/models/generation'
 import {collectionLabel, draftNaming} from './RegenerateBox'
@@ -62,7 +62,9 @@ import {
     circuitEndRef,
     circuitWarnings,
     detachCircuitEndOps,
-    energizedMismatches,
+    endVoltageNotes,
+    ratingProblem,
+    takeOffVoltage,
     detachPathEndOps,
     END_LABEL,
     freeTakeOffs,
@@ -2203,8 +2205,12 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
     }
     const straightKm = from && to ? haversineKm(from.coords, to.coords) : undefined
     const reVolted = !!d.draft.energizedVoltage && d.draft.energizedVoltage !== d.draft.voltage
-    /** Connected ends whose connection voltage differs from the energized voltage being edited. */
-    const voltageMismatch = energizedMismatches(ed.doc, record.id, d.draft.energizedVoltage)
+    /** The voltage at the connected ends against the voltages being edited: mismatches (warnings) and what is worth knowing (info). */
+    const endNotes = endVoltageNotes(ed.doc, record.id, d.draft.energizedVoltage, d.draft.voltage)
+    const voltageMismatch = endNotes.mismatches
+    /** Energized beyond the rating (above it, or at another current type): a warning; below it or de-energized: info. */
+    const rating = ratingProblem(d.draft.voltage, d.draft.energizedVoltage)
+    const runsBelow = energizedVsRated(d.draft.voltage, d.draft.energizedVoltage)
     /** Id / name the model rules give this circuit as edited (`<kV>_<site>_<site>_S<n>`). */
     const auto = draftNaming(ed.doc, 'circuits', d.draft)
 
@@ -2267,6 +2273,14 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
                 ))}
                 </Notice>
             )}
+            {rating && <Notice kind="warn"><strong>⚠ Attention:</strong> {rating}. Check the rated and energized voltages.</Notice>}
+            {(endNotes.info.length > 0 || runsBelow === 'lower' || runsBelow === 'deEnergized') && (
+                <Notice kind="info">
+                    {runsBelow === 'lower' && <div>ⓘ Runs at <b>{d.draft.energizedVoltage}</b>, below its rated {d.draft.voltage}: drawn in the energized colour with a dotted overlay in the rated one.</div>}
+                    {runsBelow === 'deEnergized' && <div>ⓘ De-energized (0 V): built but not in use, or part of a line not complete yet.</div>}
+                    {endNotes.info.map(n => <div key={n.end}>ⓘ The {END_LABEL[n.end]} end {n.text}.</div>)}
+                </Notice>
+            )}
             <div className="form-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
                 <TextField label="Name" value={d.draft.name} onChange={v => d.set('name', v)} className="span-all" hint={auto && auto.name !== d.draft.name ? `Rule name: ${auto.name}` : undefined}
                            action={{label: 'auto', title: auto ? `Use the rule name ${auto.name}` : 'No rule name without ends', disabled: !auto || auto.name === d.draft.name, onClick: () => auto && d.set('name', auto.name)}}/>
@@ -2326,7 +2340,7 @@ function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locat
     const graph = useMemo(() => buildCircuitGraph(doc), [doc])
     const candidates = useMemo(() => lineEndCandidates(doc, circuit.id, graph), [doc, circuit.id, graph])
     /** The line every pair of candidates forms, [from][to]. */
-    const pairs = useMemo(() => candidates.from.map(a => candidates.to.map(b => formLine(doc, circuit.id, a, b))), [doc, circuit.id, candidates])
+    const pairs = useMemo(() => candidates.from.map(a => candidates.to.map(b => formLine(doc, circuit.id, a, b, graph))), [doc, circuit.id, candidates, graph])
     const [pick, setPick] = useState<{ from?: number; to?: number }>({})
     useEffect(() => setPick({}), [circuit.id])
     const fromOk = pairs.map(row => row.some(p => !p.problem))
@@ -2358,7 +2372,8 @@ function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locat
             id: uniqueId(doc, naming.id), name: naming.name, voltage: chosen.voltage, circuitIds: chosen.circuitIds,
             ...(chosen.from ? {from: chosen.from} : {}), ...(chosen.to ? {to: chosen.to} : {}),
         }
-        if (ed.apply([{type: 'upsert', collection: 'lines', record}])) {
+        // the line runs at its voltage: its sections energized at it, the junction nodes along it set to it
+        if (ed.apply([{type: 'upsert', collection: 'lines', record}, ...formedLineVoltageOps(doc, chosen)])) {
             ed.select({collection: 'lines', id: record.id})
             locate?.({collection: 'lines', id: record.id})
         }
@@ -2410,6 +2425,16 @@ function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locat
                             <span className="muted"> ({chosen.circuitIds.map(circuitName).join(', ')})</span>
                         </p>
                     )}
+                    {chosen && naming && chosen.voltage && (() => {
+                        const reVolt = chosen.circuitIds.map(id => doc.circuits.find(c => c.id === id)).filter(c => c && c.energizedVoltage !== chosen.voltage).map(c => c!.name)
+                        return (
+                            <p className="small info-text" style={{margin: '0 0 6px'}}>
+                                ⓘ {chosen.voltage === TransmissionVoltage.DE_ENERGIZED ? 'No yard or live circuit reaches it: the line is de-energized (0 V)' : `Runs at ${chosen.voltage}, what its ends bring`}
+                                {reVolt.length ? `; ${reVolt.join(', ')} ${reVolt.length === 1 ? 'is' : 'are'} energized at it` : ''}
+                                {chosen.junctionNodeIds.length ? ', and the junction nodes along it are set to it' : ''}.
+                            </p>
+                        )
+                    })()}
                     <div className="toolbar">
                         <button type="button" className="small primary" disabled={!naming} onClick={form}>Form line</button>
                     </div>
@@ -2565,8 +2590,8 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
                 <NumberField label="Bundle" value={bundle} min={1} step={1} onChange={setBundle}/>
                 <ConductorFields meta={meta} value={conductor} onChange={setConductor}/>
                 <NumberField label="Circuits" value={count} min={1} step={1} onChange={setCount} hint="Parallel circuits on the same route"/>
-                <SelectField label="Energized voltage" value={energizedVoltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel="from the connections"
-                             onChange={setEnergizedVoltage} hint="Optional: e.g. 0V (De-Energized) for a line built but not in service"/>
+                <SelectField label="Energized voltage" value={energizedVoltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={plan.energizedVoltage && !energizedVoltage ? `from the yards: ${plan.energizedVoltage}` : "from the yards"}
+                             onChange={setEnergizedVoltage} hint="Empty: the voltage the yards bring (0 V when both ends are junctions); e.g. 0V (De-Energized) for a line built but not in service"/>
                 <NumberField label="Length (km)" value={lengthKm} min={0} onChange={v => {
                     setLengthTouched(true)
                     setLengthKm(v)
@@ -2605,7 +2630,8 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
                         : withPath.some(l => !l.path.created) ? 'Some sections share it, others get a new, separate path.' : 'A new, separate path will be created.'
                 return <Notice kind="warn">⚠ A path already exists between {withPath.map(l => `${stopLabel(l.from)} and ${stopLabel(l.to)}`).join(', ')}. <b>{verdict}</b></Notice>
             })()}
-            {plan.warnings.map(w => <p key={w} className="small warn-dot" style={{margin: '6px 0 0'}}>⚠ {w}</p>)}
+            {plan.warnings.map(w => <p key={w} className="small warn-dot" style={{margin: '6px 0 0', whiteSpace: 'normal'}}>⚠ {w}</p>)}
+            {plan.notes.map(n => <p key={n} className="small info-text" style={{margin: '6px 0 0'}}>ⓘ {n}</p>)}
             {plan.errors.length > 0 && fromYard && toYard && <p className="small muted" style={{margin: '6px 0 0'}}>{plan.errors.join('; ')}</p>}
             {plan.circuits.length > 0 && (
                 <div className="small" style={{marginTop: 8}}>
@@ -2984,7 +3010,8 @@ const EMPTY_END_CHOICE: CircuitEndChoice = {connectionName: '', connectionId: ''
  * (`CircuitDraft`; a right-click takes one out). Each end then connects: at a site through a free take-off of any yard,
  * a new take-off or the site junction (created when missing); at a junction by joining a node or starting one of its
  * own. The circuit fields, the path (an existing one between the places by default) and the energized voltage (the
- * connections' unless picked) follow, with warnings for ends at different voltages, open ends and energized ≠ rated.
+ * connections' unless picked, 0 V with both ends open) follow, with warnings for ends at different voltages, open ends
+ * and an energized voltage beyond the rating, and notes (blue) for running below it or joining circuits at the same voltage.
  * One journaled step creates everything; the new circuit is selected.
  */
 function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsProps) {
@@ -3113,6 +3140,11 @@ function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsPro
                     <ul style={{margin: 0, paddingLeft: 16}}>{plan.warnings.map(w => <li key={w}>⚠ {w}</li>)}</ul>
                 </Notice>
             )}
+            {plan.notes.length > 0 && (
+                <Notice kind="info">
+                    <ul style={{margin: 0, paddingLeft: 16}}>{plan.notes.map(n => <li key={n}>ⓘ {n}</li>)}</ul>
+                </Notice>
+            )}
             <div className="toolbar" style={{marginTop: 10}}>
                 <button type="button" className="primary small" disabled={plan.errors.length > 0 || !plan.circuit} onClick={create}>Create circuit</button>
                 {creates.length > 0 && <span className="small muted">also creates {creates.join(', ')}</span>}
@@ -3161,7 +3193,10 @@ function CircuitEndField({label, place, other, end, choice, setPlace, setChoice}
                 }}>
                     {yards.map(y => (
                         <optgroup key={y.id} label={`Yard ${y.yardName} (${enumLabel(y.voltage)})`}>
-                            {freeTakeOffs(doc, y.id).map(t => <option key={t.id} value={`T:${t.id}`}>Free take-off {t.lineName}{t.voltage && t.voltage !== y.voltage ? ` (${enumLabel(t.voltage)})` : ''}</option>)}
+                            {freeTakeOffs(doc, y.id).map(t => {
+                                const v = takeOffVoltage(doc, t.id)
+                                return <option key={t.id} value={`T:${t.id}`}>Free take-off {t.lineName}{v && v !== y.voltage ? ` (${enumLabel(v)})` : ''}</option>
+                            })}
                             <option value={`N:${y.id}`}>New take-off in yard {y.yardName}</option>
                         </optgroup>
                     ))}

@@ -543,15 +543,25 @@ immediately.
      bundle, conductor), rated voltage (left empty: the one the ends
      suggest, `suggestedCircuitVoltage`), length (pre-filled with the
      straight-line distance), **energized voltage** (left empty: the
-     connections', the FROM end first; the options mark the FROM end's,
+     connections', the FROM end first, an existing node counting at the
+     voltage the circuits there run at (`nodeRunningVoltage`), 0V when both
+     ends are open nodes of their own; the options mark the FROM end's,
      the TO end's and the rated voltage so a take-off voltage is one pick,
      and 0V marks a circuit not in service) and the transmission path: a
      path that already runs between the two places (either way; the best
      one by default, one that runs the other way makes the circuit follow
      it, its FROM and TO swapped) or **New path** with its name and id;
-  4. any take-off voltage is accepted; ⚠ warnings name ends at different
-     voltages, an open end, an energized voltage different from an end or
-     from the rated one, and both ends in one site. *Create circuit* writes
+  4. the ends must suit the energized voltage (the one picked; 0V suits
+     anything): a free take-off or a node at another voltage is refused, as
+     are ends at two voltages; with an energized voltage picked, a new
+     take-off goes into the site's yard at it (a new take-off in another yard
+     is refused), or, at a site without such a yard and below the yard's
+     voltage, its circuit is set to it (a secondary / auxiliary line, ⚠);
+     ⚠ warnings name an open end, an energized voltage different from an end or
+     beyond the rating (above it, or AC on a DC circuit or the other way
+     round, `energizedVsRated`), and both ends in one site; blue ⓘ notes
+     (`NewCircuitPlan.notes`) name what needs no fixing: running below the
+     rating, de-energized, an end joining circuits at the same voltage. *Create circuit* writes
      everything in one journaled step (site junctions, take-offs, the path,
      the circuit and its two TRANSMISSION connections; a new node gets the
      energized voltage) and selects the circuit; the button lists what else
@@ -891,9 +901,16 @@ immediately.
   shared path only this circuit's ends swap and it runs against the path),
   delete; an
   "Attention" notice appears when the energized voltage being edited differs
-  from the connection at either end, with a "use …" button per end that
-  adopts the connection voltage, and the circuit rows in the path, site,
-  junction and find lists carry the same ⚠ marker; below it a **Lines**
+  from the connection at either end (`endVoltageNotes` in `linkOps.ts`: at a
+  yard the take-off's or yard's voltage; at a junction the voltage the other
+  circuits joined there run at, energized else rated, de-energized ones left
+  out; the node's own voltage is nominal), with a "use …" button per end that
+  adopts the connection voltage, and when it is beyond the rating (above
+  it, or another current type, `ratingProblem`); the circuit rows in the path, site,
+  junction and find lists carry the same ⚠ markers. What needs no fixing is
+  a blue ⓘ notice (`Notice kind="info"`, `.info-text`): running below the
+  rating, de-energized, a junction end joining circuits at the same voltage
+  (and a node nominally at another); below it a **Lines**
   panel lists the lines the circuit is a section of, with a "remove" per
   line (a circuit in no line gets a ⚠ notice there instead, and "⚠ no line"
   in the path, site, junction and find lists, `circuitWarnings`, and in its
@@ -911,8 +928,16 @@ immediately.
   "already line …", "within line …", "would contain line …: extend that
   line instead"), when both ends are the same place or the two sides
   share a section; lines that only share part of their sections (a tie at
-  a tee) are fine. The preview names the line (`<kV>_<from>_<to>_L<n>`) and
-  its sections; **Form line** creates it, sections FROM → TO along the
+  a tee) are fine. The line runs at the voltage that reaches it: a yard end
+  at its take-off's or yard's voltage, the circuits outside it at its
+  junction nodes (a tie) at theirs; a pair is refused when they disagree
+  (a yard at another voltage: "the ends are at different voltages") or a
+  section is not rated for it ("… is beyond the rating of section …"); with
+  nothing reaching it (junction to junction, open ends) it is de-energized
+  (0V). The preview names the line (`<kV>_<from>_<to>_L<n>`, `0V_…` when
+  de-energized), its sections and, in blue, the voltage it runs at;
+  **Form line** creates it, energizes its sections at that voltage and sets
+  the junction nodes along it to it (`formedLineVoltageOps`), sections FROM → TO along the
   circuit, and selects it; when nothing is left the panel says so), line
   (name, voltage, FROM / TO end: a yard, a site junction or a line junction
   (a junction end: the line stays open there or ties in),
@@ -928,7 +953,7 @@ immediately.
   site panel lists the lines ending at its yards), overview (the tab strip
   described under *Find* above, then network name and description, counts,
   loose circuits; the toolbar's *+ Line* opens the **New line** wizard in
-  the side panel (`lineWizard.ts`: pick the FROM and TO ends, each a site, then one of its yards (the circuits leave it through take-offs; the yard at the other end's voltage, else the highest, is preselected) or its site junction (created when missing), or a line junction (`LineEndField`; end keys `Y:` / `G:` / `J:`, `NewLineSpec.from` / `to`); at a junction end each circuit gets a node of its own and the line ends at that junction, open until it is extended or tied in (lines toward the same open end take the next free `L<n>`), a take-off facing a line junction is named after it, and the voltage must be picked when neither end is a yard; an optional *Energized voltage* (e.g. 0V de-energized) is set on every new section instead of the one their connections give; then optionally the stops
+  the side panel (`lineWizard.ts`: pick the FROM and TO ends, each a site, then one of its yards (the circuits leave it through take-offs; the yard at the other end's voltage, else the highest, is preselected) or its site junction (created when missing), or a line junction (`LineEndField`; end keys `Y:` / `G:` / `J:`, `NewLineSpec.from` / `to`); at a junction end each circuit gets a node of its own and the line ends at that junction, open until it is extended or tied in (lines toward the same open end take the next free `L<n>`), a take-off facing a line junction is named after it, and the voltage must be picked when neither end is a yard; the line runs at the voltage its yards bring (a yard below the rated voltage at its own, a blue note: e.g. 230 kV conductors on 115 kV yards run at 115 kV; a yard above it through take-offs at the rated voltage, a secondary / auxiliary line, a warning; ends that would bring two voltages are refused), with both ends at junctions at 0V (de-energized), and the line, its sections' energized voltage and the junction nodes it creates take it; an optional *Energized voltage* (e.g. 0V de-energized) is used instead; each yard end then takes its take-offs into the yard at that voltage: the one picked, else the site's yard at it (a note), else, below the picked yard's voltage, an auxiliary line whose take-off circuits carry it (⚠), else the line is refused; free take-offs are reused only when their circuit is at that voltage; open ends and why the line runs at its voltage are blue ⓘ notes (`NewLinePlan.notes`); then optionally the stops
   in between (**+ Junction in between** adds an ordered stop with move up /
   down and remove; a stop is a free junction or a *site*, passed through its
   site junction, which the plan creates named after the site when the site
@@ -1055,13 +1080,17 @@ immediately.
   share a row with equipment already in the same column nothing is added:
   the panel shows the clashing rows and an alert says so. Going down below
   row 0 is refused.
-* Take-off panel, *Voltage*: left empty the take-off is at the yard voltage;
-  set, the take-off is drawn in that colour, the connection a circuit is
-  attached to (and so the circuit's energized voltage) takes it, *Line to
-  site* prefixes the name with it, and a transformer winding wired to the
-  take-off is expected at that voltage instead of the yard's. The line
-  wizard sets it on the take-offs it creates when the circuit voltage
-  differs from the yard's and energizes the line at the circuit voltage.
+* Take-off panel, *Voltage (of its circuit)*: a take-off has no voltage of
+  its own; it is its circuit's (`takeOffVoltage`: the TRANSMISSION
+  connection where its line leaves, else its in-yard wiring), else the
+  yard's. The select writes that connection at once (`setTakeOffVoltageOps`);
+  a free take-off wired nowhere has no circuit yet and shows the yard
+  voltage. Set, the take-off is drawn in that colour, a circuit attached is
+  energized at it, *Line to site* prefixes the name with it, and a
+  transformer winding wired to the take-off is expected at it instead of the
+  yard's. The wizards set it on the circuits of the take-offs they create
+  as a secondary / auxiliary line (below the yard's voltage, at a site
+  without a yard at the energized voltage).
 * Equipment panel, transformers: instead of the terminals table the panel
   edits the **windings** with the same editor as the power-transformer
   template form (`WindingsEditor`: side, wiring, tap changer, voltage,

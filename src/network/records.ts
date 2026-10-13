@@ -153,11 +153,9 @@ export interface SubstationTakeOffRecord extends NetworkRecordBase {
     row?: number
     /** Drawn in the bay's take-off column (right of the main bay column); unset take-offs sit in the bay column and get a warning. */
     takeOffColumn?: boolean
-    /**
-     * Voltage of the line leaving here when it is not the yard's, e.g. the secondary or auxiliary side of a transformer in the
-     * yard. Unset, the yard voltage applies (colour, the voltage a circuit is energized at when attached, the line name prefix).
-     */
-    voltage?: TransmissionVoltage
+    // No voltage of its own: a take-off is at the voltage of its circuit (`takeOffVoltage`: the TRANSMISSION connection
+    // holding it, else the in-yard connection it is wired into, e.g. the secondary or auxiliary side of a transformer),
+    // else its yard's. That voltage colours it, energizes the circuits attached and prefixes its line name.
 }
 
 /* ---------- transmission side ---------- */

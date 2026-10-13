@@ -1,6 +1,7 @@
 /** Map helpers shared by the Leaflet editor and its side panels (no Leaflet dependency). */
 import {atPathEnd, junctionRef} from '@shared/network/refs'
 import type {CoordinatesProps} from '@shared/models/coordinates'
+import {voltageValueKv} from '@shared/models/transmission.voltage'
 import {CircuitEnd, ConnectionJunctionKind, ConnectionJunctionRef, ConnectionScope, GenerationUnitRecord, NetworkDocument, NetworkNodeKind} from '@shared/network/records'
 
 export type Mode = 'select' | 'addSite' | 'addJunction' | 'addPath' | 'addCircuit' | 'addLine' | 'editWaypoints' | 'splitPath'
@@ -253,8 +254,13 @@ export function plannedVoltageColor(voltage?: string): string {
     return '#' + v.map((c, i) => Math.round(c * PLANNED_VOLTAGE_SHARE + g[i] * (1 - PLANNED_VOLTAGE_SHARE)).toString(16).padStart(2, '0')).join('')
 }
 
-/** Nominal voltage in kV of a voltage code (`AC230KV` → 230, `AC400V` → 0.4); 0 when unknown or de-energized (`0V`). Used to list yards highest voltage first. */
+/**
+ * Nominal voltage in kV of a voltage code (`AC230KV` → 230, `AC400V` → 0.4; from `TRANSMISSION_VOLTAGE_DETAILS`, read
+ * from the code when it is not listed); 0 when unknown or de-energized (`0V`). Used to list yards highest voltage first.
+ */
 export function voltageKv(voltage?: string): number {
+    const listed = voltageValueKv(voltage)
+    if (listed !== undefined) return listed
     const m = /(\d+(?:\.\d+)?)(K?)V$/i.exec(voltage ?? '')
     return m ? Number(m[1]) / (m[2] ? 1 : 1000) : 0
 }

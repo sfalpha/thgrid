@@ -10,7 +10,8 @@
  * A circuit end connected at a yard is therefore "at" a path end that names
  * the yard's site; the helpers below do that comparison in one place.
  */
-import {ConnectionJunctionKind, ConnectionJunctionRef, NetworkDocument} from "./records";
+import {ConnectionJunctionKind, ConnectionJunctionRef, ConnectionRecord, ConnectionScope, NetworkDocument, NetworkNodeKind} from "./records";
+import {TransmissionVoltage} from "../models/transmission.voltage";
 
 export const siteRef = (groupId: string): ConnectionJunctionRef => ({kind: ConnectionJunctionKind.SUBSTATION_GROUP, id: groupId})
 export const yardRef = (substationId: string): ConnectionJunctionRef => ({kind: ConnectionJunctionKind.SUBSTATION, id: substationId})
@@ -57,4 +58,29 @@ export function atPathEnd(doc: NetworkDocument, place?: ConnectionJunctionRef, p
     if (sameRef(place, pathEnd)) return true
     if (pathEnd.kind !== ConnectionJunctionKind.SUBSTATION_GROUP) return false
     return siteOfRef(doc, place) === pathEnd.id
+}
+
+const holdsTakeOff = (c: ConnectionRecord, takeOffId: string) => c.nodes.some(n => n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF && n.id === takeOffId)
+
+/**
+ * The circuit of a take-off (the runtime `SubstationTakeOff.circuit`): the TRANSMISSION connection holding it, where
+ * its line leaves (none while the take-off is free), and the in-yard SUBSTATION connections it is wired into.
+ */
+export function takeOffCircuit(doc: NetworkDocument, takeOffId: string): { line?: ConnectionRecord; yard: ConnectionRecord[] } {
+    return {
+        line: doc.connections.find(c => c.scope === ConnectionScope.TRANSMISSION && holdsTakeOff(c, takeOffId)),
+        yard: doc.connections.filter(c => c.scope === ConnectionScope.SUBSTATION && holdsTakeOff(c, takeOffId)),
+    }
+}
+
+/**
+ * Voltage of a take-off: the one set on its circuit (`takeOffCircuit`: the line side first, else the in-yard wiring,
+ * e.g. the secondary or auxiliary side of a transformer in the yard), else its yard's. A take-off carries no voltage of
+ * its own.
+ */
+export function takeOffVoltage(doc: NetworkDocument, takeOffId: string): TransmissionVoltage | undefined {
+    const t = doc.takeOffs.find(x => x.id === takeOffId)
+    if (!t) return undefined
+    const circuit = takeOffCircuit(doc, takeOffId)
+    return circuit.line?.voltage ?? circuit.yard.find(c => c.voltage)?.voltage ?? doc.substations.find(s => s.id === t.substationId)?.voltage
 }

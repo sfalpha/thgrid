@@ -25,7 +25,7 @@ import {
     TransmissionLineRecord,
 } from "./records";
 import {applyOps, NetworkOp, renameRecordOps} from "./ops";
-import {pathEndOf} from "./refs";
+import {pathEndOf, takeOffVoltage} from "./refs";
 import {TransmissionVoltage} from "../models/transmission.voltage";
 import {SubstationGroup} from "../models/substation.group";
 import {GenerationUnit} from "../models/generation.unit";
@@ -46,6 +46,18 @@ export interface Naming {
     /** Base id (not yet made unique). */
     id: string
     name: string
+    /** A take-off's line name by the rules (see `ruleLineName`), when it differs from the one it has. */
+    lineName?: string
+}
+
+/**
+ * A take-off's line name by the rule `<voltage>_<site>_L<n>` with its voltage token following `voltage` (the take-off's,
+ * from its circuit: `230KV_SA2_L1` at 115 kV is `115KV_SA2_L1`); any other line name is kept as typed.
+ */
+export function ruleLineName(lineName: string, voltage?: TransmissionVoltage): string {
+    const m = /^(\d+(?:\.\d+)?K?V(?:DC)?)_(.+_L\d+)$/i.exec(lineName)
+    const token = voltage && voltage !== TransmissionVoltage.DE_ENERGIZED ? SubstationTakeOff.defaultLineName({targetCode: 'X', voltage, sequence: 1})?.replace(/_X_L1$/, '') : undefined
+    return m && token && token.toUpperCase() !== m[1].toUpperCase() ? `${token}_${m[2]}` : lineName
 }
 
 /** Site code and yard name of a yard record, for the substation-side hints. */
@@ -366,8 +378,11 @@ export function defaultNamingFor(doc: NetworkDocument, collection: NetworkCollec
             return e && equipmentNaming(doc, e.substationId, e.code, e.equipmentType)
         }
         case 'takeOffs': {
+            // a line name by the rule takes the take-off's voltage (its circuit's, else the yard's); the name and id follow it
             const t = doc.takeOffs.find(r => r.id === id)
-            return t && takeOffNaming(doc, t.substationId, t.lineName)
+            if (!t) return undefined
+            const lineName = ruleLineName(t.lineName, takeOffVoltage(doc, t.id))
+            return {...takeOffNaming(doc, t.substationId, lineName), ...(lineName !== t.lineName ? {lineName} : {})}
         }
         case 'paths': {
             const p = doc.paths.find(r => r.id === id)
@@ -466,10 +481,12 @@ export function regenerateNamingOps(doc: NetworkDocument, targets: RegenerateTar
             return
         }
         if (!what.name || !NAMED_BY_RULES.includes(t.collection)) return
-        const rec = (current[t.collection] as AnyNetworkRecord[]).find(r => r.id === t.id) as (AnyNetworkRecord & { name?: string }) | undefined
-        if (rec && naming.name && naming.name !== rec.name) {
-            push([{type: 'upsert', collection: t.collection, record: {...rec, name: naming.name}}])
-            Object.assign(changeOf(t), {oldName: rec.name, newName: naming.name})
+        const rec = (current[t.collection] as AnyNetworkRecord[]).find(r => r.id === t.id) as (AnyNetworkRecord & { name?: string; lineName?: string }) | undefined
+        // a take-off's line name by the rule follows its voltage too
+        const lineName = t.collection === 'takeOffs' && naming.lineName && naming.lineName !== rec?.lineName ? naming.lineName : undefined
+        if (rec && naming.name && (naming.name !== rec.name || lineName)) {
+            push([{type: 'upsert', collection: t.collection, record: {...rec, name: naming.name, ...(lineName ? {lineName} : {})}}])
+            Object.assign(changeOf(t), {oldName: rec.name ?? rec.lineName, newName: naming.name})
         }
     }
     planned.filter(p => p.t.collection !== 'circuits').forEach(applyName)

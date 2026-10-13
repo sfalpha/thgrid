@@ -18,6 +18,7 @@ import {SubstationEquipmentType} from "../models/substation.equipment";
 import {TemplateKind} from "../templates/template";
 import {validateTransformerWindings} from "../templates/validation";
 import {atPathEnd} from "./refs";
+import {takeOffCircuit, takeOffVoltage} from "./migrate";
 import {
     AnyNetworkRecord,
     CIRCUIT_END_FROM,
@@ -197,7 +198,6 @@ export function validateNetworkRecordShape(collection: NetworkCollectionName, re
             checkOptionalString(issues, record.bayId, p('bayId'))
             checkOptionalNumber(issues, record.row, p('row'), {integer: true, min: 0})
             if (record.takeOffColumn !== undefined && typeof record.takeOffColumn !== 'boolean') issues.push({path: p('takeOffColumn'), message: 'takeOffColumn must be true or false'})
-            checkEnum(issues, record.voltage, p('voltage'), enumValues(TransmissionVoltage), false)
             break
         case 'junctions':
             checkCoords(issues, record.coords, p('coords'), true)
@@ -590,8 +590,9 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
                 const b = busById.get(n.id)
                 if (b?.voltage && v && b.voltage !== v) warn(`connections.${i}.voltage`, `connection ${label} at ${v}${c.voltage ? '' : ' (the yard voltage)'} holds bus ${b.name ?? b.id} at ${b.voltage}: set the connection voltage to match`)
             } else if (n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF) {
-                const t = takeOffs.get(n.id)
-                if (t?.voltage && v && t.voltage !== v) warn(`connections.${i}.voltage`, `connection ${label} at ${v}${c.voltage ? '' : ' (the yard voltage)'} holds take-off ${t.lineName} at ${t.voltage}: set the connection voltage to match`)
+                // the take-off's line side (its TRANSMISSION connection) should run at the voltage it is wired to inside the yard
+                const t = takeOffs.get(n.id), line = takeOffCircuit(d, n.id).line
+                if (t && line?.voltage && v && line.voltage !== v) warn(`connections.${i}.voltage`, `connection ${label} at ${v}${c.voltage ? '' : ' (the yard voltage)'} holds take-off ${t.lineName}, whose line leaves at ${line.voltage} (${line.name ?? line.id}): set the two to match`)
             }
         }
     })
@@ -607,16 +608,17 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
         if (c.scope !== ConnectionScope.SUBSTATION) return
         const yard = yards.get(c.junction.id)
         if (!yard) return
-        const takeOffVoltage = c.nodes.filter(n => n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF).map(n => takeOffs.get(n.id)?.voltage).find(v => !!v)
-        const expected = takeOffVoltage ?? yard.voltage
+        // a take-off on the node at another voltage than the yard's (its circuit's: `takeOffVoltage`)
+        const takeOffVolt = c.nodes.filter(n => n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF).map(n => takeOffVoltage(d, n.id)).find(v => !!v && v !== yard.voltage)
+        const expected = takeOffVolt ?? yard.voltage
         for (const n of c.nodes) {
             if (n.kind !== NetworkNodeKind.EQUIPMENT_TERMINAL) continue
             const e = equipmentById.get(n.id)
             if (!e || e.equipmentType !== SubstationEquipmentType.POWER_TRANSFORMER) continue
             const t = e.terminals.find(t => t.key === n.terminal)
             if (!t?.voltage || t.voltage === expected) continue
-            warn(`connections.${i}.nodes`, takeOffVoltage
-                ? `power transformer ${e.code} terminal ${t.key} (${t.voltage}) is wired to a ${takeOffVoltage} take-off: wire the ${takeOffVoltage} winding there`
+            warn(`connections.${i}.nodes`, takeOffVolt
+                ? `power transformer ${e.code} terminal ${t.key} (${t.voltage}) is wired to a ${takeOffVolt} take-off: wire the ${takeOffVolt} winding there`
                 : `power transformer ${e.code} terminal ${t.key} (${t.voltage}) is wired inside the ${yard.voltage} yard: wire its ${yard.voltage} winding here and take ${t.key} to the other yard through a yard link, or to a take-off set to ${t.voltage} (place the transformer so the wired winding faces the bay stack: below it in a higher-voltage yard, above it in a lower one)`)
         }
     })

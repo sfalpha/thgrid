@@ -34,7 +34,7 @@ import {
     SubstationYardConnectionRecord,
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, findRecord, NetworkOp} from '@shared/network/ops'
-import {describeTakeOffUsage, takeOffUsage} from './linkOps'
+import {describeTakeOffUsage, setTakeOffVoltageOps, takeOffCircuit, takeOffUsage, takeOffVoltage} from './linkOps'
 import {bayConnectionCount, unwireBayOps, wireBayOps} from './autoWire'
 import {Notice} from '../components/IssueList'
 import {api, MetaResponse} from '../api/client'
@@ -581,12 +581,25 @@ function TakeOffPanel({meta, yard, record, layout, group, navigate}: PanelsProps
                 <TextField label="Line name" value={d.draft.lineName} onChange={v => d.set('lineName', v.toUpperCase())} hint="e.g. 230KV_CTI_L1; or pick the site the line goes to"/>
                 <SelectField label="Line to site" value={undefined} emptyLabel="pick a site…" options={ed.doc.substationGroups.filter(g => g.id !== group.id).sort((a, b) => a.groupName.localeCompare(b.groupName)).map(g => ({value: g.id, label: g.groupName}))}
                              onChange={v => {
-                                 const lineName = v && takeOffLineName(ed.doc, record.substationId, v, d.draft.voltage)
+                                 const lineName = v && takeOffLineName(ed.doc, record.substationId, v, takeOffVoltage(ed.doc, record.id))
                                  if (lineName) d.set('lineName', lineName)
                              }} hint="Sets the line name to <voltage>_<site code>_L<n>"/>
-                <SelectField label="Voltage" value={d.draft.voltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={`yard voltage (${yard.voltage})`}
-                             onChange={v => d.set('voltage', v as TransmissionVoltage | undefined)} className="span-all"
-                             hint="Set only when the line leaves at another voltage than the yard's (the secondary or auxiliary side of a transformer): colours the take-off, energizes attached circuits and prefixes the line name"/>
+                {(() => {
+                    // the take-off's voltage lives on its circuit: where its line leaves, else its wiring in the yard
+                    const circuit = takeOffCircuit(ed.doc, record.id)
+                    const target = circuit.line ?? circuit.yard.find(c => c.voltage) ?? circuit.yard[0]
+                    const where = circuit.line ? 'where its line leaves' : 'its wiring in the yard'
+                    return target ? (
+                        <SelectField label="Voltage (of its circuit)" value={target.voltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={`yard voltage (${yard.voltage})`}
+                                     onChange={v => {
+                                         const ops = setTakeOffVoltageOps(ed.doc, record.id, v as TransmissionVoltage | undefined)
+                                         if (ops?.length) ed.apply(ops)
+                                     }} className="span-all"
+                                     hint={`Set on its circuit ${target.name ?? target.id} (${where}), at once. Only when the line leaves at another voltage than the yard's (the secondary or auxiliary side of a transformer): it colours the take-off, energizes the circuits attached and prefixes the line name`}/>
+                    ) : (
+                        <p className="small muted span-all" style={{margin: 0}}>Voltage: {yard.voltage} (the yard's). A take-off has no voltage of its own: it is its circuit's, set once a circuit is attached on the map or the take-off is wired in the yard.</p>
+                    )
+                })()}
                 <SelectField label="Bay" value={d.draft.bayId} options={layout.bays.map(b => ({value: b.id, label: `BAY ${b.bayNumber}`}))} allowEmpty emptyLabel="(no bay yet)" onChange={v => d.set('bayId', v)}/>
                 <NumberField label="Row" value={d.draft.row} min={0} step={1} onChange={v => d.set('row', v)} hint="Vertical position, 0 = bottom (auto when empty: above the bay's equipment)"/>
                 <TextField label="Name" value={d.draft.name} onChange={v => d.set('name', v || undefined)} placeholder={auto} hint={`Left empty: ${auto} (the line name)`}
