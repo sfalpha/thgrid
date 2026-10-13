@@ -929,10 +929,11 @@ immediately.
   circuits joined there run at, energized else rated, de-energized ones left
   out; the node's own voltage is nominal), with a "use …" button per end that
   adopts the connection voltage, and when it is beyond the rating (above
-  it, or another current type, `ratingProblem`); the circuit rows in the path, site,
-  junction and find lists carry the same ⚠ markers. What needs no fixing is
+  it, or another current type, `ratingProblem`), or below it while the rated or
+  energized voltage is being edited (every voltage can be picked); the circuit rows in the path, site,
+  junction and find lists carry the same ⚠ markers (beyond the rating only). What needs no fixing is
   a blue ⓘ notice (`Notice kind="info"`, `.info-text`): running below the
-  rating, de-energized, a junction end joining circuits at the same voltage
+  rating as saved, de-energized, a junction end joining circuits at the same voltage
   (and a node nominally at another); below it a **Lines**
   panel lists the lines the circuit is a section of, with a "remove" per
   line (a circuit in no line gets a ⚠ notice there instead, and "⚠ no line"

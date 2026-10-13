@@ -2213,6 +2213,8 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
     /** Energized beyond the rating (above it, or at another current type): a warning; below it or de-energized: info. */
     const rating = ratingProblem(d.draft.voltage, d.draft.energizedVoltage)
     const runsBelow = energizedVsRated(d.draft.voltage, d.draft.energizedVoltage)
+    /** Rated or energized voltage changed by hand (not applied yet): running below the rating is then a warning, else info. */
+    const voltsEdited = d.draft.voltage !== record.voltage || d.draft.energizedVoltage !== record.energizedVoltage
     /** Id / name the model rules give this circuit as edited (`<kV>_<site>_<site>_S<n>`). */
     const auto = draftNaming(ed.doc, 'circuits', d.draft)
 
@@ -2275,10 +2277,13 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
                 ))}
                 </Notice>
             )}
-            {rating && <Notice kind="warn"><strong>⚠ Attention:</strong> {rating}. Check the rated and energized voltages.</Notice>}
-            {(endNotes.info.length > 0 || runsBelow === 'lower' || runsBelow === 'deEnergized') && (
+            {/* edited by hand: any mismatch with the rating warns, below it too; as saved, running below it is info */}
+            {(rating || (runsBelow === 'lower' && voltsEdited)) && (
+                <Notice kind="warn"><strong>⚠ Attention:</strong> {rating ?? <>runs at <b>{d.draft.energizedVoltage}</b>, below its rated {d.draft.voltage} (drawn in the energized colour with a dotted overlay in the rated one)</>}. Check the rated and energized voltages.</Notice>
+            )}
+            {(endNotes.info.length > 0 || runsBelow === 'deEnergized' || (runsBelow === 'lower' && !voltsEdited)) && (
                 <Notice kind="info">
-                    {runsBelow === 'lower' && <div>ⓘ Runs at <b>{d.draft.energizedVoltage}</b>, below its rated {d.draft.voltage}: drawn in the energized colour with a dotted overlay in the rated one.</div>}
+                    {runsBelow === 'lower' && !voltsEdited && <div>ⓘ Runs at <b>{d.draft.energizedVoltage}</b>, below its rated {d.draft.voltage}: drawn in the energized colour with a dotted overlay in the rated one.</div>}
                     {runsBelow === 'deEnergized' && <div>ⓘ De-energized (0 V): built but not in use, or part of a line not complete yet.</div>}
                     {endNotes.info.map(n => <div key={n.end}>ⓘ The {END_LABEL[n.end]} end {n.text}.</div>)}
                 </Notice>
