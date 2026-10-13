@@ -42,7 +42,7 @@ import {
     TransmissionPathRecord,
 } from '@shared/network/records'
 import {applyOps, NetworkOp, uniqueId} from '@shared/network/ops'
-import {circuitNaming, lineNaming, pathNaming, regenerateNamingOps, RegenerateChange, takeOffLineName, takeOffNaming} from '@shared/network/naming'
+import {circuitNaming, lineNameVoltage, lineNaming, pathNaming, regenerateNamingOps, RegenerateChange, takeOffLineName, takeOffNaming} from '@shared/network/naming'
 import {atPathEnd, junctionRef, pathEndOf, siteRef} from '@shared/network/refs'
 import {newSiteJunctionRecord, siteJunctionOf} from '@shared/network/siteJunction'
 import {attachCircuitEndToJunctionOps, attachCircuitEndToTakeOffOps, circuitEndConnection, detachCircuitEndOps, refLabel} from './linkOps'
@@ -346,7 +346,7 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
             const second = after ? [continuation.id, ...ids.slice(i + 1)] : [c.id, ...ids.slice(i + 1)]
             const kept: TransmissionLineRecord = {...line, to: yardEnd, circuitIds: first}
             push({type: 'upsert', collection: 'lines', record: kept})
-            const ln = lineNaming(probe, undefined, yardEnd, line.to, line.voltage)
+            const ln = lineNaming(probe, undefined, yardEnd, line.to, lineNameVoltage(probe, second, line.voltage))
             const added: TransmissionLineRecord = {id: uniqueId(probe, ln.id), name: ln.name, voltage: line.voltage, planned: line.planned, from: yardEnd, to: line.to, circuitIds: second}
             push({type: 'upsert', collection: 'lines', record: added})
             plan.splitLines.push({line: kept, added})

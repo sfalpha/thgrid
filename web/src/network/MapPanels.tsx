@@ -26,7 +26,7 @@ import {
     TransmissionPathRecord,
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, NetworkOp, pickId, uniqueId} from '@shared/network/ops'
-import {generationUnitNaming, junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
+import {generationUnitNaming, junctionNaming, lineNameVoltage, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
 import {buildCircuitGraph, fillLineEnds, formedLineVoltageOps, formLine, guessLineEnds, LineEndCandidate, lineEndCandidates, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits} from '@shared/network/lines'
 import {yardNameForVoltage} from '@shared/models/naming'
 import {GENERATION_BADGES, GENERATION_LABELS, GenerationType} from '@shared/models/generation'
@@ -2361,7 +2361,7 @@ function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locat
     const toOk = candidates.to.map((_, b) => fromIdx >= 0 && !pairs[fromIdx][b].problem)
     const toIdx = pick.to !== undefined && toOk[pick.to] ? pick.to : firstOk(candidates.to, toOk)
     const chosen = fromIdx >= 0 && toIdx >= 0 ? pairs[fromIdx][toIdx] : undefined
-    const naming = chosen && !chosen.problem ? lineNaming(doc, undefined, chosen.from, chosen.to, chosen.voltage) : undefined
+    const naming = chosen && !chosen.problem ? lineNaming(doc, undefined, chosen.from, chosen.to, lineNameVoltage(doc, chosen.circuitIds, chosen.voltage)) : undefined
 
     /** A candidate end in words: the place (yard, site junction or line junction, with the node when there are several) and how far it is. */
     const endLabel = (c: LineEndCandidate, side: 'FROM' | 'TO') => {

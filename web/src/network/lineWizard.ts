@@ -461,8 +461,8 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
             takeOff ? attachCircuitEndToTakeOffOps(probe, circuitId, circuitEnd, takeOff.id, {voltage: auxiliaryAt.get(takeOff.substationId)}) : attachCircuitEndToJunctionOps(probe, circuitId, circuitEnd, end.ref.id, lineVoltage, {forceNew: true})
 
         // one line per circuit, FROM → TO, named first: its sections are named after it (`<line>_<path>`); at a junction end
-        // the line ends at that junction
-        const ln = lineNaming(probe, undefined, fromEnd.ref, toEnd.ref, lineVoltage)
+        // the line ends at that junction. Named after the conductors' rated voltage, not the one it runs at.
+        const ln = lineNaming(probe, undefined, fromEnd.ref, toEnd.ref, voltage ?? lineVoltage)
         // a name another line already has (e.g. toward the same open junction): take the next free L<n>
         const bump = (s: string) => s.replace(/_L(\d+)$/, (_, n) => `_L${Number(n) + 1}`)
         while (probe.lines.some(l => l.name === ln.name) && /_L\d+$/.test(ln.name)) {

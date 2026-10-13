@@ -958,8 +958,9 @@ immediately.
   (a yard at another voltage: "the ends are at different voltages") or a
   section is not rated for it ("… is beyond the rating of section …"); with
   nothing reaching it (junction to junction, open ends) it is de-energized
-  (0V). The preview names the line (`<kV>_<from>_<to>_L<n>`, `0V_…` when
-  de-energized), its sections and, in blue, the voltage it runs at;
+  (0V). The preview names the line (`<kV>_<from>_<to>_L<n>`, `<kV>` the
+  sections' rated voltage, whatever it runs at), its sections and, in blue,
+  the voltage it runs at;
   **Form line** creates it, energizes its sections at that voltage and sets
   the junction nodes along it to it (`formedLineVoltageOps`), sections FROM → TO along the
   circuit, and selects it; when nothing is left the panel says so), line
@@ -1006,7 +1007,8 @@ immediately.
   section in a node of its own at every junction (parallel circuits stay
   isolated) and energized, with the length shared among the sections by
   straight-line distance, and one line per circuit named
-  `<kV>_<site>_<site>_L<n>` whose sections run FROM → TO; for every leg
+  `<kV>_<site>_<site>_L<n>` (`<kV>` the conductor's rated voltage, not the
+  energized one: 230 kV conductors on 115 kV yards give `230KV_…`) whose sections run FROM → TO; for every leg
   where a path already runs between the two stops (the yards' sites or the
   junctions, either direction) the wizard reuses it by default and offers, with a *Route*
   select per leg, to create a separate path instead; a path whose circuits

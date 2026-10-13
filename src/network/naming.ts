@@ -26,7 +26,7 @@ import {
 } from "./records";
 import {applyOps, NetworkOp, renameRecordOps} from "./ops";
 import {pathEndOf, takeOffVoltage} from "./refs";
-import {TransmissionVoltage} from "../models/transmission.voltage";
+import {TransmissionVoltage, voltageValueKv} from "../models/transmission.voltage";
 import {SubstationGroup} from "../models/substation.group";
 import {GenerationUnit} from "../models/generation.unit";
 import {Substation} from "../models/substation";
@@ -240,15 +240,53 @@ export function circuitNaming(doc: NetworkDocument, input: CircuitNamingInput): 
     return {id: TransmissionCircuit.defaultId({name}), name}
 }
 
-/** True when the two lines run between the same pair of yards, in either direction. */
+/**
+ * The voltage a line is named after: the rated voltage of its conductors (its sections' `voltage`, the lowest when they
+ * differ), not the one it is energized at; `fallback` (the line's voltage) when no section has one.
+ */
+export function lineNameVoltage(doc: NetworkDocument, circuitIds: string[], fallback?: TransmissionVoltage): TransmissionVoltage | undefined {
+    const rated = circuitIds.map(id => doc.circuits.find(c => c.id === id)?.voltage).filter((v): v is TransmissionVoltage => !!v)
+    if (!rated.length) return fallback
+    return rated.reduce((low, v) => ((voltageValueKv(v) ?? Infinity) < (voltageValueKv(low) ?? Infinity) ? v : low))
+}
+
+/** True when the two lines run between the same pair of yards (or junctions), in either direction. */
 function samePair(a: { from?: ConnectionJunctionRef; to?: ConnectionJunctionRef }, from?: ConnectionJunctionRef, to?: ConnectionJunctionRef): boolean {
     const eq = (x?: ConnectionJunctionRef, y?: ConnectionJunctionRef) => !!x && !!y && x.kind === y.kind && x.id === y.id
     return (eq(a.from, from) && eq(a.to, to)) || (eq(a.from, to) && eq(a.to, from))
 }
 
-/** A named line: the typed name, or `<kV>_<site>_<site>_L<n>` from its ends, numbered among the lines between the same two yards. */
+/**
+ * Lines are numbered per pair of yards (or junctions), `L1`, `L2`, ... as the circuits between two yards are. Lines
+ * between other yards of the same two places can carry the same name, though: `<kV>_<from>_<to>` names the places and the
+ * rated voltage, not the yards (a 230 kV-rated line on the 115 kV yards beside 230 kV lines on the 230 kV ones). These
+ * are the numbers such lines already carry, to be skipped so that two lines never share a name. For an existing line
+ * (`self`) only the lines before it by id count: of two lines that already share a name, the first keeps it.
+ */
+function lineNumbersTaken(doc: NetworkDocument, from: ConnectionJunctionRef, to: ConnectionJunctionRef, voltage?: TransmissionVoltage | string, self?: TransmissionLineRecord): Set<number> {
+    const a = endpointToken(doc, from, 'site'), b = endpointToken(doc, to, 'site')
+    const v = voltageLabel(voltage ? String(voltage) : undefined)
+    const taken = new Set<number>()
+    for (const l of doc.lines) {
+        if (!l.from || !l.to || samePair(l, from, to) || (self && l.id >= self.id)) continue
+        const x = endpointToken(doc, l.from, 'site'), y = endpointToken(doc, l.to, 'site')
+        if (!((x === a && y === b) || (x === b && y === a)) || voltageLabel(lineNameVoltage(doc, l.circuitIds, l.voltage)) !== v) continue
+        const n = nameSequence('lines', l.name)
+        if (n !== undefined) taken.add(n)
+    }
+    return taken
+}
+
+/**
+ * A named line: the typed name, or `<kV>_<site>_<site>_L<n>` from its ends, numbered among the lines between the same two
+ * yards (the next number), skipping a number one of them or a line of the same name between other yards already
+ * carries (`lineNumbersTaken`); `voltage` is the one it is named after, its conductors' rated voltage (`lineNameVoltage`).
+ */
 export function lineNaming(doc: NetworkDocument, name?: string, from?: ConnectionJunctionRef, to?: ConnectionJunctionRef, voltage?: TransmissionVoltage | string): Naming {
-    const sequence = from && to ? doc.lines.filter(l => samePair(l, from, to)).length + 1 : 1
+    const pair = from && to ? doc.lines.filter(l => samePair(l, from, to)) : []
+    const used = new Set([...pair.map(l => nameSequence('lines', l.name)), ...(from && to ? lineNumbersTaken(doc, from, to, voltage) : [])])
+    let sequence = pair.length + 1
+    while (used.has(sequence)) sequence++
     const hints = {name: name?.trim() || undefined, from: endpointToken(doc, from, 'site'), to: endpointToken(doc, to, 'site'), voltage, sequence}
     return {id: TransmissionLine.defaultId(hints), name: TransmissionLine.defaultName(hints) || 'line'}
 }
@@ -312,17 +350,21 @@ function inSequenceOrder<R extends { id: string; name?: string }>(collection: 'p
  * by the rules and the others keep their names: in `inSequenceOrder`, each renamed record takes the next number that
  * no kept sibling's name already carries. With every sibling renamed that is simply 1, 2, 3, ...; renaming only some
  * (records moved onto a path that already has S1 to S4) never hands out a number a kept sibling still uses.
+ * `takenFor`: numbers a sibling may not take besides those (lines: carried by lines of the same name between other yards).
  */
-function sequenceAmong<R extends { id: string; name?: string }>(collection: 'paths' | 'circuits' | 'lines', siblings: R[], record: R, renamed: ReadonlySet<string>): number {
+function sequenceAmong<R extends { id: string; name?: string }>(collection: 'paths' | 'circuits' | 'lines', siblings: R[], record: R, renamed: ReadonlySet<string>, takenFor?: (r: R) => ReadonlySet<number>): number {
     const ordered = inSequenceOrder(collection, siblings.includes(record) ? siblings : [...siblings, record])
     const moving = (r: R) => r.id === record.id || renamed.has(r.id)
     const used = new Set(ordered.filter(r => !moving(r)).map(r => nameSequence(collection, r.name)).filter((n): n is number => n !== undefined))
-    const k = ordered.filter(moving).indexOf(record)
-    for (let seq = 1, n = 0; ; seq++) {
-        if (used.has(seq)) continue
-        if (n === k) return seq
-        n++
+    // the renamed ones in order, each taking the first number free for it
+    for (const r of ordered.filter(moving)) {
+        const taken = takenFor?.(r)
+        let seq = 1
+        while (used.has(seq) || taken?.has(seq)) seq++
+        if (r.id === record.id) return seq
+        used.add(seq)
     }
+    return 1
 }
 
 /** Where a circuit end is connected (as a path end: the yard's site, or the junction), else where its path ends. */
@@ -413,8 +455,10 @@ export function defaultNamingFor(doc: NetworkDocument, collection: NetworkCollec
         case 'lines': {
             const l = doc.lines.find(r => r.id === id)
             if (!l) return undefined
+            const voltage = lineNameVoltage(doc, l.circuitIds, l.voltage)
             const siblings = l.from && l.to ? doc.lines.filter(x => samePair(x, l.from, l.to)) : [l]
-            const hints = {from: endpointToken(doc, l.from, 'site'), to: endpointToken(doc, l.to, 'site'), voltage: l.voltage, sequence: sequenceAmong('lines', siblings, l, renamed)}
+            const takenFor = (x: TransmissionLineRecord) => x.from && x.to ? lineNumbersTaken(doc, x.from, x.to, lineNameVoltage(doc, x.circuitIds, x.voltage), x) : new Set<number>()
+            const hints = {from: endpointToken(doc, l.from, 'site'), to: endpointToken(doc, l.to, 'site'), voltage, sequence: sequenceAmong('lines', siblings, l, renamed, takenFor)}
             const name = TransmissionLine.defaultName(hints) || l.name
             return {id: TransmissionLine.defaultId({name}), name}
         }

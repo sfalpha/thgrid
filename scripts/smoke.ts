@@ -340,34 +340,34 @@ async function main() {
             // mass regeneration of ids / names from the model rules (a site and a junction get their id only)
             const plan = regenerateNamingOps(doc4, [{collection: 'circuits', id: 'C1'}, {collection: 'substations', id: 'CNO_230'}, {collection: 'lines', id: 'L1'}, {collection: 'substationGroups', id: 'CNO'}, {collection: 'junctions', id: 'JT1'}], {id: true, name: true})
             const regenerated = applyOps(doc4, plan.ops)
-            // C1 is in line L1, renamed CNO_CTI_L1 in the same run: the circuit takes the new line name
-            const c1 = regenerated.circuits.find(c => c.name === 'CNO_CTI_L1_CNO-JT1 route')
+            // C1 is in line L1, renamed 230KV_CNO_CTI_L1 in the same run: the circuit takes the new line name
+            const c1 = regenerated.circuits.find(c => c.name === '230KV_CNO_CTI_L1_CNO-JT1 route')
             check(plan.skipped.length === 0 && plan.changes.length === 5, 'regenerateNamingOps plans every target', plan)
             const jt = regenerated.junctions.find(j => j.name === 'JT1')
             check(jt?.id === 'TJT_JT1' && plan.changes.some(c => c.collection === 'junctions' && c.newId === 'TJT_JT1' && c.newName === undefined)
                 && regenerated.connections.some(c => c.id === 'T2' && c.junction.id === 'TJT_JT1') && regenerated.paths.some(p => p.to?.id === 'TJT_JT1'), 'a junction gets its id from its name (TJT_<name>), keeps the name, and nodes and paths follow', {jt, paths: regenerated.paths})
             const site = regenerated.substationGroups.find(g => g.groupName === 'CNO')
-            check(!!c1 && c1.id === 'TCC_CNO_CTI_L1_CNO-JT1_route' && regenerated.substations.some(s => s.id === 'SSY_CNO_230KV' && s.groupId === 'SSG_CNO') && site?.id === 'SSG_CNO' && site.name === 'Chonburi'
+            check(!!c1 && c1.id === 'TCC_230KV_CNO_CTI_L1_CNO-JT1_route' && regenerated.substations.some(s => s.id === 'SSY_CNO_230KV' && s.groupId === 'SSG_CNO') && site?.id === 'SSG_CNO' && site.name === 'Chonburi'
                 && plan.changes.some(c => c.collection === 'substationGroups' && c.newId === 'SSG_CNO' && c.newName === undefined), 'regeneration renames circuit and yard by the rules and gives a site its rule id but keeps its name', plan.changes)
             check(regenerated.paths.every(p => p.from?.id !== 'CNO' && p.to?.id !== 'CNO'), 'paths follow a regenerated site id', regenerated.paths)
-            // the test line has no voltage, so its rule name is `<site>_<site>`
-            check(regenerated.lines.find(l => l.id === 'TLN_CNO_CTI_L1')?.circuitIds[0] === 'TCC_CNO_CTI_L1_CNO-JT1_route' && regenerated.connections.every(c => c.junction.id !== 'CNO_230') && validateNetworkDocument(regenerated).length === 0, 'regeneration keeps every reference valid', regenerated.lines)
-            check(regenerateNamingOps(regenerated, [{collection: 'circuits', id: 'TCC_CNO_CTI_L1_CNO-JT1_route'}], {id: true, name: true}).changes.length === 0, 'regeneration is idempotent')
+            // the test line has no voltage of its own: it is named after the rated voltage of its sections (230 kV)
+            check(regenerated.lines.find(l => l.id === 'TLN_230KV_CNO_CTI_L1')?.circuitIds[0] === 'TCC_230KV_CNO_CTI_L1_CNO-JT1_route' && regenerated.connections.every(c => c.junction.id !== 'CNO_230') && validateNetworkDocument(regenerated).length === 0, 'regeneration keeps every reference valid', regenerated.lines)
+            check(regenerateNamingOps(regenerated, [{collection: 'circuits', id: 'TCC_230KV_CNO_CTI_L1_CNO-JT1_route'}], {id: true, name: true}).changes.length === 0, 'regeneration is idempotent')
             // Parallel lines are numbered by the numbers in their names, not by document order (a rename moves the record to the end),
             // and two lines trading ids swap them without a `_2` suffix.
-            const l1 = regenerated.lines.find(l => l.id === 'TLN_CNO_CTI_L1')!
-            const crossed = applyOps(regenerated, [{type: 'delete', collection: 'lines', id: l1.id}, {type: 'upsert', collection: 'lines', record: {...l1, id: 'TLN_CNO_CTI_L2', name: 'CNO_CTI_L1'}},
-                {type: 'upsert', collection: 'lines', record: {...l1, id: 'TLN_CNO_CTI_L1', name: 'CNO_CTI_L2'}}] as any)
-            const lineTargets = (d: typeof crossed) => d.lines.filter(l => l.name.startsWith('CNO_CTI_')).map(l => ({collection: 'lines' as const, id: l.id}))
+            const l1 = regenerated.lines.find(l => l.id === 'TLN_230KV_CNO_CTI_L1')!
+            const crossed = applyOps(regenerated, [{type: 'delete', collection: 'lines', id: l1.id}, {type: 'upsert', collection: 'lines', record: {...l1, id: 'TLN_230KV_CNO_CTI_L2', name: '230KV_CNO_CTI_L1'}},
+                {type: 'upsert', collection: 'lines', record: {...l1, id: 'TLN_230KV_CNO_CTI_L1', name: '230KV_CNO_CTI_L2'}}] as any)
+            const lineTargets = (d: typeof crossed) => d.lines.filter(l => l.name.startsWith('230KV_CNO_CTI_')).map(l => ({collection: 'lines' as const, id: l.id}))
             const swapPlan = regenerateNamingOps(crossed, lineTargets(crossed), {id: true, name: true})
             const swapped = applyOps(crossed, swapPlan.ops)
-            check(swapPlan.changes.length === 2 && swapped.lines.find(l => l.name === 'CNO_CTI_L1')?.id === 'TLN_CNO_CTI_L1' && swapped.lines.find(l => l.name === 'CNO_CTI_L2')?.id === 'TLN_CNO_CTI_L2'
+            check(swapPlan.changes.length === 2 && swapped.lines.find(l => l.name === '230KV_CNO_CTI_L1')?.id === 'TLN_230KV_CNO_CTI_L1' && swapped.lines.find(l => l.name === '230KV_CNO_CTI_L2')?.id === 'TLN_230KV_CNO_CTI_L2'
                 && !swapped.lines.some(l => l.id.startsWith('regen_tmp')), 'lines trading ids swap them without a suffix', swapPlan.changes)
             check(regenerateNamingOps(swapped, lineTargets(swapped), {id: true, name: true}).changes.length === 0, 'regenerating parallel lines again changes nothing')
             // renaming only some of the parallel records never hands out a number a kept sibling still carries (records merged onto a path with S1..S4)
-            const joined = applyOps(swapped, [{type: 'upsert', collection: 'lines', record: {...l1, id: 'X3', name: 'CNO_CTI_L1'}}] as any)
+            const joined = applyOps(swapped, [{type: 'upsert', collection: 'lines', record: {...l1, id: 'X3', name: '230KV_CNO_CTI_L1'}}] as any)
             const partPlan = regenerateNamingOps(joined, [{collection: 'lines', id: 'X3'}], {id: true, name: true})
-            check(partPlan.changes[0]?.newName === 'CNO_CTI_L3' && partPlan.changes[0]?.newId === 'TLN_CNO_CTI_L3', 'a renamed sibling takes a number no kept sibling uses', partPlan.changes)
+            check(partPlan.changes[0]?.newName === '230KV_CNO_CTI_L3' && partPlan.changes[0]?.newId === 'TLN_230KV_CNO_CTI_L3', 'a renamed sibling takes a number no kept sibling uses', partPlan.changes)
             // substation side: bay, bus, equipment and take-off get id and name from their number / code / line name
             const yardPlan = regenerateNamingOps(doc4, [{collection: 'bays', id: 'CNO_230_8041'}, {collection: 'buses', id: 'CNO_230_BUS1'}, {collection: 'equipments', id: 'CNO_230_8041_CB'}, {collection: 'takeOffs', id: 'CNO_230_CTI_L1'}], {id: true, name: true})
             const yardDoc = applyOps(doc4, yardPlan.ops)
