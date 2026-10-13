@@ -3,8 +3,8 @@
  * in between, with N parallel circuits. An end is a yard (the circuits leave
  * it through take-offs) or a junction: a line junction, or a site's own
  * junction (created when the site has none); at a junction end each circuit
- * gets a node of its own there, and the line's end stays open (a line runs
- * yard to yard: it is extended later).
+ * gets a node of its own there, and the line ends at that junction (open
+ * until it is extended or tied in).
  * Builds, in one journaled batch, everything the model rules would name:
  *  - a take-off per circuit at each yard (`<voltage>_<other site>_L<n>`),
  *  - one transmission path per leg (yard → junction → … → yard), shared by
@@ -306,7 +306,7 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
     const endYard = fromYard ?? toYard
     if (spec.voltage && endYard && spec.voltage !== endYard.voltage) warnings.push(`the circuit voltage ${spec.voltage} differs from the yard voltage ${endYard.voltage}: new take-offs are set to ${spec.voltage} (a secondary / auxiliary line) and the line is energized at it`)
     for (const [end, side] of [[fromEnd, 'FROM'], [toEnd, 'TO']] as const) {
-        if (end.junction) warnings.push(`the line ${side === 'FROM' ? 'starts' : 'ends'} at junction ${refLabel(probe, end.ref)}: each circuit gets a node of its own there and the line's ${side} yard stays open until the line is extended`)
+        if (end.junction) warnings.push(`the line ${side === 'FROM' ? 'starts' : 'ends'} at junction ${refLabel(probe, end.ref)}: each circuit gets a node of its own there, open until the line is extended or tied in`)
     }
     if (spec.energizedVoltage && spec.energizedVoltage !== ratedVoltage) warnings.push(`the sections are energized at ${spec.energizedVoltage}, rated ${ratedVoltage}`)
     const voltage = ratedVoltage   // rated: the circuits and their names
@@ -382,10 +382,10 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
         const attachAtEnd = (circuitId: string, circuitEnd: CircuitEnd, end: LineEnd, takeOff: SubstationTakeOffRecord | undefined) =>
             takeOff ? attachCircuitEndToTakeOffOps(probe, circuitId, circuitEnd, takeOff.id) : attachCircuitEndToJunctionOps(probe, circuitId, circuitEnd, end.ref.id, lineVoltage, {forceNew: true})
 
-        // one line per circuit, FROM → TO, named first: its sections are named after it (`<line>_<path>`); a line runs yard to
-        // yard, so a junction end is left open (the name still says where it goes)
+        // one line per circuit, FROM → TO, named first: its sections are named after it (`<line>_<path>`); at a junction end
+        // the line ends at that junction
         const ln = lineNaming(probe, undefined, fromEnd.ref, toEnd.ref, lineVoltage)
-        // with an open end the rules cannot count the lines already running there: take the next free L<n>
+        // a name another line already has (e.g. toward the same open junction): take the next free L<n>
         const bump = (s: string) => s.replace(/_L(\d+)$/, (_, n) => `_L${Number(n) + 1}`)
         while (probe.lines.some(l => l.name === ln.name) && /_L\d+$/.test(ln.name)) {
             ln.name = bump(ln.name)
@@ -421,7 +421,7 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
             sections.push(probe.circuits.find(c => c.id === circuit.id) ?? circuit)
         }
 
-        const line: TransmissionLineRecord = {id: uniqueId(probe, ln.id), name: ln.name, voltage: lineVoltage, from: fromYard ? yardRef(fromYard.id) : undefined, to: toYard ? yardRef(toYard.id) : undefined, circuitIds: sections.map(s => s.id), planned: spec.planned || undefined}
+        const line: TransmissionLineRecord = {id: uniqueId(probe, ln.id), name: ln.name, voltage: lineVoltage, from: fromEnd.ref, to: toEnd.ref, circuitIds: sections.map(s => s.id), planned: spec.planned || undefined}
         push({type: 'upsert', collection: 'lines', record: line})
         circuits.push({line, sections, fromTakeOff, toTakeOff, reused})
     }

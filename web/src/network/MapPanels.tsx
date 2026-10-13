@@ -26,7 +26,7 @@ import {
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, NetworkOp, pickId, uniqueId} from '@shared/network/ops'
 import {junctionNaming, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
-import {buildCircuitGraph, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits, proposalsForCircuit} from '@shared/network/lines'
+import {buildCircuitGraph, fillLineEnds, formLine, guessLineEnds, LineEndCandidate, lineEndCandidates, lineExtensionCandidates, linesOfCircuit, lineWarnings, orderLineCircuits} from '@shared/network/lines'
 import {yardNameForVoltage} from '@shared/models/naming'
 import {GENERATION_BADGES, GENERATION_LABELS, GenerationType} from '@shared/models/generation'
 import {draftNaming} from './RegenerateBox'
@@ -400,6 +400,26 @@ function OverviewPanel({navigate, locate, setMode}: MapPanelsProps) {
                             {unused.length > 0 && <button type="button" className="small danger" title={`Delete the ${unused.length} path(s) no circuit uses`} onClick={() => {
                                 if (window.confirm(`Delete ${unused.length} unused path(s)? Paths with circuits are kept.`)) ed.apply(unused.flatMap(p => cascadeDeleteOps(d, 'paths', p.id)))
                             }}>Delete unused</button>}
+                        </div>
+                    )
+                })()}
+                {tab === 'lines' && (() => {
+                    const missing = d.lines.filter(l => !l.from || !l.to)
+                    const fills = fillLineEnds(d).filter(x => x.filled.length > 0)
+                    return (
+                        <div className="toolbar" style={{marginBottom: 6}}>
+                            <span className="muted small">{d.lines.length} line{d.lines.length === 1 ? '' : 's'}{missing.length ? `, ${missing.length} missing an end` : ''}</span>
+                            <span className="spacer" style={{flex: 1}}/>
+                            {fills.length > 0 && <button type="button" className="small" title="Set the FROM / TO a line does not state from its own sections: where its first / last section leaves the line (a yard or a junction)" onClick={() => {
+                                const list = fills.map(x => `• ${x.line.name}: ${refLabel(d, x.updated.from)} → ${refLabel(d, x.updated.to)} (${x.filled.map(e => e.toUpperCase()).join(' and ')} filled)`)
+                                const left = missing.length - fills.filter(x => x.updated.from && x.updated.to).length
+                                const leftNote = left ? `\n\n${left} line(s) still miss an end: a section end there is not connected.` : ''
+                                if (!window.confirm(`Fill the missing ends of ${fills.length} line(s) from their sections?\n\n${list.join('\n')}${leftNote}`)) return
+                                const ops: NetworkOp[] = fills.map(x => ({type: 'upsert', collection: 'lines', record: x.updated}))
+                                const regen = regenerateNamingOps(applyOps(d, ops), fills.map(x => ({collection: 'lines' as const, id: x.line.id})), {id: true, name: true})
+                                const rename = regen.changes.length > 0 && window.confirm(`Also rename these lines by the model rules (${regen.changes.length} change(s): ${regen.changes.map(c => `${c.oldName ?? c.id} → ${c.newName ?? c.newId}`).join(', ')})?`)
+                                ed.apply(rename ? [...ops, ...regen.ops] : ops)
+                            }}>Fill missing ends ({fills.length})</button>}
                         </div>
                     )
                 })()}
@@ -1057,13 +1077,16 @@ function BypassJunctionPanel({junctionId, locate}: { junctionId: string; locate?
 
 /* ---------- transmission path ---------- */
 
-/** Options for choosing a path end: every site and every junction (a route is not specific to a voltage, so it ends at a site, not a yard). */
+/**
+ * Options for choosing a path end, or a place to route to: every site and every line junction. A route runs between
+ * places: it is not specific to a voltage (so it ends at a site, not a yard), and a site's own junction is at the site.
+ */
 function useEndOptions() {
     const ed = useNetworkEditor()
     const doc = ed.doc
     const sites = doc.substationGroups.map(g => ({value: `G:${g.id}`, label: `${g.groupName}${g.name && g.name !== g.groupName ? ` – ${g.name}` : ''} (${doc.substations.filter(y => y.groupId === g.id).map(y => y.yardName).join(', ') || 'no yards'})`}))
         .sort((a, b) => a.label.localeCompare(b.label))
-    const junctions = doc.junctions.map(j => ({value: `J:${j.id}`, label: `Junction ${j.name ?? j.id}`})).sort((a, b) => a.label.localeCompare(b.label))
+    const junctions = doc.junctions.filter(j => !j.groupId).map(j => ({value: `J:${j.id}`, label: `Junction ${j.name ?? j.id}`})).sort((a, b) => a.label.localeCompare(b.label))
     return [...sites, ...junctions]
 }
 
@@ -1092,38 +1115,45 @@ function RefLink({target, locate}: { target: ConnectionJunctionRef; locate?: (se
     }}>{label}</a>
 }
 
+/**
+ * One end of a path: a select of the places a route can end at (every site and every line junction, `useEndOptions`; a
+ * site junction or yard end shows as its site), changeable at any time, with the circuits attached there and *detach*.
+ * Moving or detaching an end detaches the circuit ends at the old place (after a confirmation).
+ */
 function PathEndRow({path, end, locate}: { path: TransmissionPathRecord; end: CircuitEnd; locate?: (sel: Selection) => void }) {
     const ed = useNetworkEditor()
-    const options = useEndOptions()
+    const doc = ed.doc
     const ref = end === CIRCUIT_END_FROM ? path.from : path.to
-    const [choice, setChoice] = useState('')
-    const circuits = ed.doc.circuits.filter(c => c.pathId === path.id)
-    const attachedHere = circuits.filter(c => atPathEnd(ed.doc, circuitEndRef(ed.doc, c.id, end), ref)).length
+    const other = end === CIRCUIT_END_FROM ? path.to : path.from
+    const shown = pathEndOf(doc, ref) ?? ref
+    const options = useEndOptions().filter(o => !other || !samePlace(doc, decodeRef(o.value), other))
+    const circuits = doc.circuits.filter(c => c.pathId === path.id)
+    const attachedHere = circuits.filter(c => atPathEnd(doc, circuitEndRef(doc, c.id, end), ref)).length
+    const label = end === CIRCUIT_END_FROM ? 'FROM' : 'TO'
+    const change = (v: string) => {
+        const r = decodeRef(v)
+        if (!r || (shown && samePlace(doc, r, shown))) return
+        if (attachedHere && !window.confirm(`Move the ${label} end of ${path.name} from ${refLabel(doc, shown)} to ${refLabel(doc, r)}? The ${attachedHere} circuit end(s) attached at ${refLabel(doc, shown)} are detached.`)) return
+        ed.apply(attachedHere ? [...detachPathEndOps(doc, path, end), ...attachPathEndOps(path, end, r)] : attachPathEndOps(path, end, r))
+    }
     return (
         <>
             <dt>{end === CIRCUIT_END_FROM ? 'From' : 'To'}</dt>
             <dd>
-                {ref ? (
-                    <>
-                        <span className="badge">{ref.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? 'site' : ref.kind === ConnectionJunctionKind.SUBSTATION ? 'yard' : 'junction'}</span> <RefLink target={ref} locate={locate}/> <span className="muted small">({attachedHere}/{circuits.length} circuits attached)</span>{' '}
+                <span className="toolbar" style={{display: 'inline-flex', flexWrap: 'wrap'}}>
+                    {!ref && <span className="warn-dot">⚠ not set</span>}
+                    <select value={encodeRef(shown)} onChange={e => change(e.target.value)} style={{maxWidth: 220}}>
+                        {!shown && <option value="">choose a site or junction…</option>}
+                        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    {shown && <>
+                        <RefLink target={shown} locate={locate}/>
+                        <span className="muted small">({attachedHere}/{circuits.length} circuits attached)</span>
                         <button type="button" className="small" title="Clear this end and detach the circuits here" onClick={() => {
-                            if (!attachedHere || window.confirm(`Detach ${attachedHere} circuit end(s) at ${refLabel(ed.doc, ref)} as well?`)) ed.apply(detachPathEndOps(ed.doc, path, end))
+                            if (!attachedHere || window.confirm(`Detach ${attachedHere} circuit end(s) at ${refLabel(doc, shown)} as well?`)) ed.apply(detachPathEndOps(doc, path, end))
                         }}>detach</button>
-                    </>
-                ) : (
-                    <span className="toolbar" style={{display: 'inline-flex'}}>
-                        <span className="warn-dot">⚠ not set</span>
-                        <select value={choice} onChange={e => setChoice(e.target.value)}>
-                            <option value="">choose site / junction…</option>
-                            {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                        <button type="button" className="small" disabled={!choice} onClick={() => {
-                            const r = decodeRef(choice)
-                            if (r) ed.apply(attachPathEndOps(path, end, r))
-                            setChoice('')
-                        }}>Set</button>
-                    </span>
-                )}
+                    </>}
+                </span>
             </dd>
         </>
     )
@@ -1160,7 +1190,7 @@ function PathPanel({record, setMode, locate}: MapPanelsProps & { record: Transmi
                     <PathEndRow path={record} end={CIRCUIT_END_FROM} locate={locate}/>
                     <PathEndRow path={record} end={CIRCUIT_END_TO} locate={locate}/>
                 </dl>
-                <p className="small muted">Detaching an end also detaches the circuits there; circuits are re-attached from their own panel.</p>
+                <p className="small muted">A path runs between two places, a site or a line junction. Moving or detaching an end also detaches the circuits there; circuits are re-attached from their own panel.</p>
                 <div className="toolbar" style={{marginTop: 10}}>
                     <button type="button" className="small" onClick={() => setMode('editWaypoints')}>Edit waypoints ({record.waypoints.length})</button>
                 </div>
@@ -1180,7 +1210,7 @@ function PathPanel({record, setMode, locate}: MapPanelsProps & { record: Transmi
             {circuits.length > 0 && <PathLinesPanel path={record} circuits={circuits} locate={locate}/>}
             <div className="panel">
                 <h3>Lines over this path ({lines.length})</h3>
-                {lines.length === 0 && <p className="small muted">No line uses a circuit of this path yet. Select a circuit that runs substation to substation and use "Group into line".</p>}
+                {lines.length === 0 && <p className="small muted">No line uses a circuit of this path yet. Select a circuit and use "Form a line" in its panel.</p>}
                 {lines.map(l => {
                     const onPath = l.circuitIds.filter(id => circuits.some(c => c.id === id))
                     return (
@@ -2105,29 +2135,57 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
 /* ---------- lines ---------- */
 
 /**
- * Lines the circuit is a section of, and the hint to group it: when the
- * circuit is joined (through junction nodes) substation to substation, every
- * yard-to-yard chain through it is offered as a line to create.
+ * Lines the circuit is a section of, and "Form a line": walking from the circuit through junction nodes, every yard or
+ * junction node reached on either side (`lineEndCandidates`) is offered as the line's From (the circuit's FROM side) and
+ * To (its TO side). A pair that would duplicate, lie within or contain a line already using this circuit is listed
+ * disabled with the reason (`formLine`; a tie that only shares part is fine). The line is named by the rules and selected.
  */
 function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locate?: (sel: Selection) => void }) {
     const ed = useNetworkEditor()
     const doc = ed.doc
     const lines = linesOfCircuit(doc, circuit.id)
-    const proposals = useMemo(() => proposalsForCircuit(doc, circuit.id), [doc, circuit.id])
-    const [choice, setChoice] = useState(0)
-    useEffect(() => setChoice(0), [circuit.id])
-    const proposal = proposals[Math.min(choice, Math.max(proposals.length - 1, 0))]
-    const group = () => {
-        if (!proposal) return
-        const naming = lineNaming(doc, undefined, proposal.from, proposal.to, proposal.voltage)
-        const record: TransmissionLineRecord = {id: uniqueId(doc, naming.id), name: naming.name, voltage: proposal.voltage, from: proposal.from, to: proposal.to, circuitIds: proposal.circuitIds}
+    const graph = useMemo(() => buildCircuitGraph(doc), [doc])
+    const candidates = useMemo(() => lineEndCandidates(doc, circuit.id, graph), [doc, circuit.id, graph])
+    /** The line every pair of candidates forms, [from][to]. */
+    const pairs = useMemo(() => candidates.from.map(a => candidates.to.map(b => formLine(doc, circuit.id, a, b))), [doc, circuit.id, candidates])
+    const [pick, setPick] = useState<{ from?: number; to?: number }>({})
+    useEffect(() => setPick({}), [circuit.id])
+    const fromOk = pairs.map(row => row.some(p => !p.problem))
+    const isYard = (c: LineEndCandidate) => c.ref?.kind === ConnectionJunctionKind.SUBSTATION
+    // default: the nearest yard on each side that still leaves a line to form, else the nearest place that does
+    const firstOk = (list: LineEndCandidate[], ok: boolean[]) => {
+        const yard = list.findIndex((c, i) => isYard(c) && ok[i])
+        return yard >= 0 ? yard : ok.indexOf(true)
+    }
+    const fromIdx = pick.from !== undefined && fromOk[pick.from] ? pick.from : firstOk(candidates.from, fromOk)
+    const toOk = candidates.to.map((_, b) => fromIdx >= 0 && !pairs[fromIdx][b].problem)
+    const toIdx = pick.to !== undefined && toOk[pick.to] ? pick.to : firstOk(candidates.to, toOk)
+    const chosen = fromIdx >= 0 && toIdx >= 0 ? pairs[fromIdx][toIdx] : undefined
+    const naming = chosen && !chosen.problem ? lineNaming(doc, undefined, chosen.from, chosen.to, chosen.voltage) : undefined
+
+    /** A candidate end in words: the place (yard, site junction or line junction, with the node when there are several) and how far it is. */
+    const endLabel = (c: LineEndCandidate, side: 'FROM' | 'TO') => {
+        const sections = c.chain.length ? ` · ${c.chain.length} section${c.chain.length === 1 ? '' : 's'} further` : ` · this circuit's ${side} end`
+        if (!c.ref) return `loose ${side} end (the line's end stays unset)`
+        if (c.ref.kind === ConnectionJunctionKind.SUBSTATION) return `${refLabel(doc, c.ref)} (yard)${sections}`
+        const j = doc.junctions.find(x => x.id === c.ref!.id)
+        const site = j?.groupId ? doc.substationGroups.find(g => g.id === j.groupId) : undefined
+        const node = c.connectionId && connectionsAtJunction(doc, c.ref.id).length > 1 ? ` · node ${doc.connections.find(x => x.id === c.connectionId)?.name ?? c.connectionId}` : ''
+        return `${site ? `${site.groupName} site junction` : `Junction ${j?.name ?? c.ref.id}`}${node}${sections}`
+    }
+    const form = () => {
+        if (!chosen || chosen.problem || !naming) return
+        const record: TransmissionLineRecord = {
+            id: uniqueId(doc, naming.id), name: naming.name, voltage: chosen.voltage, circuitIds: chosen.circuitIds,
+            ...(chosen.from ? {from: chosen.from} : {}), ...(chosen.to ? {to: chosen.to} : {}),
+        }
         if (ed.apply([{type: 'upsert', collection: 'lines', record}])) {
             ed.select({collection: 'lines', id: record.id})
             locate?.({collection: 'lines', id: record.id})
         }
     }
     const removeFrom = (line: TransmissionLineRecord) => ed.apply([{type: 'upsert', collection: 'lines', record: {...line, circuitIds: line.circuitIds.filter(id => id !== circuit.id)}}])
-    const describe = (p: typeof proposal) => p ? `${refLabel(doc, p.from)} → ${refLabel(doc, p.to)} (${p.circuitIds.length} section${p.circuitIds.length === 1 ? '' : 's'})` : ''
+    const circuitName = (id: string) => doc.circuits.find(c => c.id === id)?.name ?? id
     return (
         <div className="panel">
             <h3>Lines</h3>
@@ -2144,25 +2202,41 @@ function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locat
                     <button type="button" className="small" title="Remove this circuit from the line" onClick={() => removeFrom(l)}>remove</button>
                 </div>
             ))}
-            {proposal ? (
-                <Notice kind={proposal.existingLineId ? 'ok' : 'warn'}>
-                    <strong>{proposal.existingLineId ? '✓' : '💡'} Substation to substation:</strong> this circuit runs {describe(proposal)}{proposals.length > 1 ? ` – one of ${proposals.length} routes through it` : ''}.
-                    <div className="toolbar" style={{marginTop: 6}}>
-                        {proposals.length > 1 && (
-                            <select value={Math.min(choice, proposals.length - 1)} onChange={e => setChoice(Number(e.target.value))} title="Which pair of substations the line runs between">
-                                {proposals.map((p, i) => <option key={i} value={i}>{describe(p)}{p.existingLineId ? ' · grouped' : ''}</option>)}
+            <h4 className="muted" style={{marginTop: 10}}>Form a line</h4>
+            {fromIdx < 0 ? (
+                <p className="small muted" style={{marginBottom: 0}}>{lines.length
+                    ? 'Every line this circuit can be part of is formed already (a new one would duplicate, lie within or contain one of its lines).'
+                    : 'Nothing to form a line with: connect the circuit at a yard or a junction first.'}</p>
+            ) : (
+                <>
+                    <div className="form-grid" style={{gridTemplateColumns: '1fr'}}>
+                        <div className="field">
+                            <label>From</label>
+                            <select value={fromIdx} onChange={e => setPick({from: Number(e.target.value)})}>
+                                {candidates.from.map((c, a) => <option key={a} value={a} disabled={!fromOk[a]}>{endLabel(c, 'FROM')}{fromOk[a] ? '' : ' – no line left to form from here'}</option>)}
                             </select>
-                        )}
-                        {proposal.existingLineId
-                            ? <span className="small">Already grouped as <a href="#" onClick={e => {
-                                e.preventDefault()
-                                ed.select({collection: 'lines', id: proposal.existingLineId!})
-                            }}>{doc.lines.find(l => l.id === proposal.existingLineId)?.name}</a></span>
-                            : <button type="button" className="small primary" onClick={group}>Group into line</button>}
+                            <span className="hint">A yard or junction on the side of this circuit's FROM end</span>
+                        </div>
+                        <div className="field">
+                            <label>To</label>
+                            <select value={toIdx} onChange={e => setPick(p => ({...p, from: fromIdx, to: Number(e.target.value)}))}>
+                                {candidates.to.map((c, b) => <option key={b} value={b} disabled={!toOk[b]}>{endLabel(c, 'TO')}{toOk[b] ? '' : ` – ${pairs[fromIdx][b].problem}`}</option>)}
+                            </select>
+                            <span className="hint">A yard or junction on the side of its TO end</span>
+                        </div>
                     </div>
-                    {proposals.length > 1 && <p className="small muted" style={{margin: '6px 0 0'}}>A tee: a section can belong to several lines that part there (a tie).</p>}
-                </Notice>
-            ) : <p className="small muted">Connect both ends through to substations (directly or via junction nodes) and the chain can be grouped into a line.</p>}
+                    {chosen && naming && (
+                        <p className="small" style={{margin: '6px 0'}}>
+                            Line <b>{naming.name}</b>: {chosen.from ? refLabel(doc, chosen.from) : '–'} → {chosen.to ? refLabel(doc, chosen.to) : '–'}, {chosen.circuitIds.length} section{chosen.circuitIds.length === 1 ? '' : 's'}
+                            <span className="muted"> ({chosen.circuitIds.map(circuitName).join(', ')})</span>
+                        </p>
+                    )}
+                    <div className="toolbar">
+                        <button type="button" className="small primary" disabled={!naming} onClick={form}>Form line</button>
+                    </div>
+                    <p className="small muted" style={{margin: '6px 0 0'}}>A line ends at a yard, or at a junction (a site junction or a line junction) where it stays open or ties in. Lines that only share part of their sections (a tie at a tee) can both use this circuit.</p>
+                </>
+            )}
         </div>
     )
 }
@@ -2378,7 +2452,6 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
     )
 }
 
-/** Options for a line end: every yard, grouped under its site. */
 /**
  * One end of the "+ Line" wizard: a site, then where at it (one of its yards, through take-offs, or its site junction,
  * created when missing), or a line junction. The value is the wizard's end key (`Y:` / `G:` / `J:`, see `LineDraft`).
@@ -2420,23 +2493,34 @@ function LineEndField({label, value, other, onChange}: { label: string; value: s
     )
 }
 
-function useYardOptions() {
-    const ed = useNetworkEditor()
-    return ed.doc.substations.map(y => {
-        const g = ed.doc.substationGroups.find(x => x.id === y.groupId)
-        return {value: y.id, label: `${g?.groupName ?? '?'} ${y.yardName} (${y.voltage})`}
-    }).sort((a, b) => a.label.localeCompare(b.label))
+/** Options for a line end (`encodeRef` values): every yard (`S:`), and every junction (`J:`), a site's own junction named after its site. */
+function useLineEndOptions() {
+    const doc = useNetworkEditor().doc
+    const site = (id?: string) => id ? doc.substationGroups.find(g => g.id === id) : undefined
+    const yards = doc.substations.map(y => ({value: `S:${y.id}`, label: `${site(y.groupId)?.groupName ?? '?'} ${y.yardName} (${y.voltage})`}))
+    const junctions = doc.junctions.map(j => {
+        const g = site(j.groupId)
+        return {value: `J:${j.id}`, label: g ? `${g.groupName} site junction (${j.name ?? j.id})` : `Junction ${j.name ?? j.id}`}
+    })
+    return [...yards, ...junctions].sort((a, b) => a.label.localeCompare(b.label))
 }
 
 function LinePanel({meta, record, locate}: MapPanelsProps & { record: TransmissionLineRecord }) {
     const ed = useNetworkEditor()
     const doc = ed.doc
     const d = useDraft(record)
-    const yards = useYardOptions()
+    const endOptions = useLineEndOptions()
     const graph = useMemo(() => buildCircuitGraph(doc), [doc])
     /** Id / name the model rules give this line as edited (`<kV>_<site>_<site>_L<n>`). */
     const auto = draftNaming(doc, 'lines', d.draft)
     const warnings = lineWarnings(doc, record, graph)
+    /** The ends this line does not state, guessed from its sections (only those it would fill). */
+    const guessed = (() => {
+        if (record.from && record.to) return undefined
+        const g = guessLineEnds(doc, record, graph)
+        const out = {...(!record.from && g.from ? {from: g.from} : {}), ...(!record.to && g.to ? {to: g.to} : {})}
+        return out.from || out.to ? out : undefined
+    })()
     const candidates = lineExtensionCandidates(doc, record, graph).map(id => doc.circuits.find(c => c.id === id)).filter((c): c is TransmissionCircuitRecord => !!c)
     const [addId, setAddId] = useState('')
     const setSections = (circuitIds: string[]) => ed.apply([{type: 'upsert', collection: 'lines', record: {...record, circuitIds}}])
@@ -2447,7 +2531,6 @@ function LinePanel({meta, record, locate}: MapPanelsProps & { record: Transmissi
         next.splice(to, 0, x)
         setSections(next)
     }
-    const endRef = (id?: string): ConnectionJunctionRef | undefined => id ? {kind: ConnectionJunctionKind.SUBSTATION, id} : undefined
     /** Exchanges the FROM and TO yards and reverses the sections; then offers to re-derive id and name (`<kV>_<from>_<to>_L<n>` reads the other way round). */
     const swapEnds = () => {
         const swapped: TransmissionLineRecord = {...record, from: record.to, to: record.from, circuitIds: [...record.circuitIds].reverse()}
@@ -2470,18 +2553,25 @@ function LinePanel({meta, record, locate}: MapPanelsProps & { record: Transmissi
                     if (ops && ed.apply(ops, {confirmedLineIds: [record.id]})) ed.select(null)
                 }}/>
                 {warnings.length > 0 && <Notice kind="warn">⚠ {warnings.join(', ')}</Notice>}
+                {guessed && (
+                    <div className="toolbar small" style={{marginBottom: 6}}>
+                        <button type="button" className="small" disabled={d.dirty} title={d.dirty ? 'Apply or reset the edits first' : 'Set the ends this line does not state from its own sections'}
+                                onClick={() => ed.apply([{type: 'upsert', collection: 'lines', record: {...record, ...guessed}}])}>Fill missing ends</button>
+                        <span className="muted">from its sections: {[guessed.from ? `FROM ${refLabel(doc, guessed.from)}` : '', guessed.to ? `TO ${refLabel(doc, guessed.to)}` : ''].filter(Boolean).join(', ')}</span>
+                    </div>
+                )}
                 <div className="form-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
                     <TextField label="Name" value={d.draft.name} onChange={v => d.set('name', v)} className="span-all" hint={auto && auto.name !== d.draft.name ? `Rule name: ${auto.name}` : undefined}
-                               action={{label: 'auto', title: auto ? `Use the rule name ${auto.name}` : 'Set the yards first', disabled: !auto || auto.name === d.draft.name, onClick: () => auto && d.set('name', auto.name)}}/>
+                               action={{label: 'auto', title: auto ? `Use the rule name ${auto.name}` : 'Set the ends first', disabled: !auto || auto.name === d.draft.name, onClick: () => auto && d.set('name', auto.name)}}/>
                     <SelectField label="Voltage" value={d.draft.voltage} options={meta.enums.transmissionVoltage} allowEmpty onChange={v => d.set('voltage', v as TransmissionVoltage | undefined)} className="span-all"/>
-                    <SelectField label="From yard" value={d.draft.from?.id} options={yards} allowEmpty onChange={v => d.set('from', endRef(v))}/>
-                    <SelectField label="To yard" value={d.draft.to?.id} options={yards} allowEmpty onChange={v => d.set('to', endRef(v))}/>
+                    <SelectField label="From" value={encodeRef(d.draft.from) || undefined} options={endOptions} allowEmpty onChange={v => d.set('from', v ? decodeRef(v) : undefined)} hint="A yard, a site junction or a line junction"/>
+                    <SelectField label="To" value={encodeRef(d.draft.to) || undefined} options={endOptions} allowEmpty onChange={v => d.set('to', v ? decodeRef(v) : undefined)} hint="A junction end: the line stays open there or ties in"/>
                     <CheckboxField label="Planned (not built yet)" checked={!!d.draft.planned} onChange={v => d.set('planned', v || undefined)} className="span-all"/>
                 </div>
                 <ApplyBar dirty={d.dirty} onReset={d.reset} onApply={() => ed.apply([{type: 'upsert', collection: 'lines', record: d.draft}])}/>
                 <div className="toolbar" style={{marginTop: 6}}>
                     <button type="button" className="small" onClick={swapEnds} disabled={d.dirty || (!record.from && !record.to && record.circuitIds.length < 2)}
-                            title={d.dirty ? 'Apply or reset the edits first' : 'Exchange the FROM and TO yards and reverse the sections; asks whether to regenerate id and name'}>Swap from / to</button>
+                            title={d.dirty ? 'Apply or reset the edits first' : 'Exchange the FROM and TO ends and reverse the sections; asks whether to regenerate id and name'}>Swap from / to</button>
                 </div>
             </div>
             <div className="panel">

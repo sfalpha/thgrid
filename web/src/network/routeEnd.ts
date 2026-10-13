@@ -9,10 +9,9 @@
  * of their own at each junction passed, and sections on a path running the other way follow its direction), or a new,
  * straight path. At the new place the last section enters a yard through a new take-off (only a yard at the voltage
  * every chosen circuit runs at, as for routing via a yard) or ends in a node of its own at a junction (the site's own
- * junction, created when missing). Lines through a circuit now end at the new place: the sections beyond the old end
- * leave the line and the new sections take their place; a line ending at a junction has that end cleared (lines run
- * yard to yard). A take-off left without a circuit at the old end is reported, and removed on request (with its
- * wiring in the yard).
+ * junction, created when missing). Lines through a circuit now end at the new place (the yard, or the junction): the
+ * sections beyond the old end leave the line and the new sections take their place. A take-off left without a circuit
+ * at the old end is reported, and removed on request (with its wiring in the yard).
  * Pure: returns ops plus a summary for the confirmation.
  */
 import {genericConductor} from '@shared/models/transmission.conductor'
@@ -33,7 +32,7 @@ import {
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, NetworkOp, uniqueId} from '@shared/network/ops'
 import {circuitNaming, pathNaming, regenerateNamingOps, RegenerateChange, RegenerateTarget} from '@shared/network/naming'
-import {atPathEnd, pathEndOf, siteOfRef, yardRef} from '@shared/network/refs'
+import {atPathEnd, junctionRef, pathEndOf, siteOfRef, yardRef} from '@shared/network/refs'
 import {newSiteJunctionRecord, siteJunctionOf} from '@shared/network/siteJunction'
 import {attachCircuitEndToJunctionOps, attachCircuitEndToTakeOffOps, circuitEndConnection, detachCircuitEndOps, refLabel} from './linkOps'
 import {haversineKm, locationOfRef} from './mapUtil'
@@ -312,15 +311,14 @@ export function buildRouteEndPlan(doc: NetworkDocument, pathId: string, circuitI
         })
 
         // lines: the new sections take the place of the sections beyond the old end, and the line ends at the new
-        // place (a yard; at a junction that end is cleared)
+        // place (the yard, or the junction)
         const ids = sections.map(s => s.id)
         for (const line of lines) {
             const lineIds = line.circuitIds
             const i = lineIds.indexOf(c.id)
             const after = oldEndAfter(line)
             const updated: TransmissionLineRecord = {...line, circuitIds: after ? [...lineIds.slice(0, i + 1), ...ids] : [...[...ids].reverse(), ...lineIds.slice(i)]}
-            if (place.yard) updated[after ? 'to' : 'from'] = yardRef(place.yard.id)
-            else delete updated[after ? 'to' : 'from']
+            updated[after ? 'to' : 'from'] = place.yard ? yardRef(place.yard.id) : junctionRef(junction!.id)
             push({type: 'upsert', collection: 'lines', record: updated})
             lineEdits.set(line.id, [...(lineEdits.get(line.id) ?? []), ...(after ? lineIds.slice(i + 1) : lineIds.slice(0, i))])
         }
@@ -350,7 +348,6 @@ export function buildRouteEndPlan(doc: NetworkDocument, pathId: string, circuitI
     const sameRun = (x: TransmissionLineRecord, y: TransmissionLineRecord) => x.circuitIds.length === y.circuitIds.length && x.circuitIds.every(id => y.circuitIds.includes(id))
     const twins = plan.lines.filter((x, i) => plan.lines.some((y, k) => k !== i && sameRun(x.line, y.line))).map(x => x.line.name)
     if (twins.length) plan.warnings.push(`${twins.join(', ')} now run the same sections (they shared a circuit up to ${plan.endLabel}): delete the one not needed`)
-    if (!place.yard && plan.lines.length) plan.warnings.push(`${plan.lines.map(x => x.line.name).join(', ')} ${end === CIRCUIT_END_TO ? 'end' : 'start'} at ${plan.targetLabel.replace(/,.*$/, '')} now, not at a yard: that end is cleared`)
     const reversed = plan.hops.filter(h => h.reversed)
     if (reversed.length) plan.warnings.push(`${reversed.map(h => `path ${h.path.name} runs ${refLabel(doc, h.path.from)} → ${refLabel(doc, h.path.to)}`).join('; ')}: the new sections on ${reversed.length === 1 ? 'it follow its' : 'them follow their'} direction (FROM and TO swap)`)
     if (plan.freedTakeOffs.length && !plan.takeOffsRemoved) {

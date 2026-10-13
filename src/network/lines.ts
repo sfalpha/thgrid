@@ -3,12 +3,13 @@
  *
  * Circuits form a graph whose nodes are the TRANSMISSION connections (a
  * take-off node at a yard, a spliced node at a junction) and whose edges
- * are the circuits. A line is a walk through that graph from one yard to
- * another; junction nodes are passed, yard nodes are terminals. Two lines
- * may share a section (a tie): both run from the same yard up to the tee
- * where they part.
+ * are the circuits. A line is a walk through that graph between two ends,
+ * each a yard or a junction (a site's own junction or a line junction, where
+ * the line stays open or ties in); junction nodes in between are passed,
+ * yard nodes are always terminals. Two lines may share a section (a tie):
+ * both run from the same end up to the tee where they part.
  *
- * Shared by the editors (hint "group into a line", line status) and tests.
+ * Shared by the editors ("Form a line", line status) and tests.
  */
 import {
     CIRCUIT_END_FROM,
@@ -22,6 +23,7 @@ import {
     TransmissionLineRecord,
 } from "./records";
 import {TransmissionVoltage} from "../models/transmission.voltage";
+import {endpointToken} from "./naming";
 
 export interface CircuitGraph {
     /** TRANSMISSION connections by id. */
@@ -182,6 +184,130 @@ export function proposalsForCircuit(doc: NetworkDocument, circuitId: string, gra
     return out.sort((a, b) => Number(!!a.existingLineId) - Number(!!b.existingLineId) || a.circuitIds.length - b.circuitIds.length)
 }
 
+/** A place a line through a circuit can end at, on one side of it. */
+export interface LineEndCandidate {
+    /** The yard or junction of the node it ends at; undefined for a circuit end that is not connected (the line's end stays unset). */
+    ref?: ConnectionJunctionRef
+    connectionId?: string
+    /** The sections from the circuit outward to this end (the circuit itself left out), the fewest there are. */
+    chain: string[]
+}
+
+/**
+ * Every place a line through the circuit can end at, on each side: walking from the circuit's FROM (TO) end through
+ * junction nodes, every node reached is one, a yard node or a junction node (a site's own junction or a line junction);
+ * a yard ends the walk, a junction is passed on to the circuits beyond. Fewest sections first; a circuit end that is
+ * not connected gives a single candidate without a place.
+ */
+export function lineEndCandidates(doc: NetworkDocument, circuitId: string, graph = buildCircuitGraph(doc)): { from: LineEndCandidate[]; to: LineEndCandidate[] } {
+    const ends = graph.ends.get(circuitId)
+    const side = (start: string | undefined): LineEndCandidate[] => {
+        if (!start) return [{chain: []}]
+        const out: LineEndCandidate[] = []
+        const seen = new Set([start])
+        const queue: { node: string; chain: string[] }[] = [{node: start, chain: []}]
+        while (queue.length) {
+            const {node, chain} = queue.shift()!
+            const conn = graph.nodes.get(node)
+            if (!conn) continue
+            out.push({ref: conn.junction, connectionId: node, chain})
+            if (isYardNode(conn)) continue
+            for (const next of graph.circuitsAt.get(node) ?? []) {
+                if (next === circuitId || chain.includes(next)) continue
+                const far = otherEnd(graph, next, node)
+                if (!far || seen.has(far)) continue
+                seen.add(far)
+                queue.push({node: far, chain: [...chain, next]})
+            }
+        }
+        return out
+    }
+    return ends ? {from: side(ends[0]), to: side(ends[1])} : {from: [], to: []}
+}
+
+export interface FormedLine {
+    /** Sections FROM → TO: the FROM side's chain reversed, the circuit, the TO side's chain. */
+    circuitIds: string[]
+    from?: ConnectionJunctionRef
+    to?: ConnectionJunctionRef
+    voltage?: TransmissionVoltage
+    /** Why these two ends cannot form a line; undefined when they can. */
+    problem?: string
+    /** Lines through the circuit it would duplicate, lie within or contain (a tie that only shares part is fine). */
+    overlaps: TransmissionLineRecord[]
+}
+
+/**
+ * The line two candidates (one per side, see `lineEndCandidates`) form through the circuit, and whether it may be
+ * formed: not when the two ends are the same place or the two sides share a section, nor when it would duplicate, lie
+ * within or contain a line that already uses this circuit (lines that only share part, a tie at a tee, are fine).
+ */
+export function formLine(doc: NetworkDocument, circuitId: string, from: LineEndCandidate, to: LineEndCandidate): FormedLine {
+    const circuitIds = [...[...from.chain].reverse(), circuitId, ...to.chain]
+    const circuit = doc.circuits.find(c => c.id === circuitId)
+    const out: FormedLine = {circuitIds, from: from.ref, to: to.ref, voltage: circuit?.energizedVoltage ?? circuit?.voltage, overlaps: []}
+    if (from.ref && to.ref && sameRef(from.ref, to.ref)) out.problem = 'both ends are the same place'
+    else if (new Set(circuitIds).size !== circuitIds.length) out.problem = 'the two sides share a section'
+    const set = new Set(circuitIds)
+    const within = (a: Set<string>, b: string[]) => b.length > 0 && b.every(id => a.has(id))
+    out.overlaps = linesOfCircuit(doc, circuitId).filter(l => within(set, l.circuitIds) || within(new Set(l.circuitIds), circuitIds))
+    if (!out.problem && out.overlaps.length) {
+        const l = out.overlaps[0]
+        out.problem = l.circuitIds.length === circuitIds.length ? `already line ${l.name}` : l.circuitIds.length > circuitIds.length ? `within line ${l.name}` : `would contain line ${l.name}: extend that line instead`
+    }
+    return out
+}
+
+/**
+ * Where a line most likely starts and ends, from its own sections, for the ends it does not state: FROM is where the
+ * first section leaves the line (its end not shared with the second section), TO likewise from the last one; a single
+ * section runs FROM → TO along the line unless an end the line states, or else its name (`<kV>_<from>_<to>_L<n>` naming
+ * both places the other way round), says otherwise. A yard or a junction; an end
+ * stays unset when that section end is not connected, or when the sections do not tell (not joined, or a loop).
+ * Ends the line states are kept.
+ */
+export function guessLineEnds(doc: NetworkDocument, line: TransmissionLineRecord, graph = buildCircuitGraph(doc)): { from?: ConnectionJunctionRef; to?: ConnectionJunctionRef } {
+    const ids = line.circuitIds.filter(id => graph.ends.has(id))
+    if (!ids.length) return {from: line.from, to: line.to}
+    const placeOf = (connId?: string) => connId ? graph.nodes.get(connId)?.junction : undefined
+    /** The end of a section that its neighbour in the line does not share. */
+    const outer = (id: string, neighbour: string): string | undefined => {
+        const [a, b] = graph.ends.get(id)!
+        const n = graph.ends.get(neighbour) ?? [undefined, undefined]
+        const atA = !!a && n.includes(a), atB = !!b && n.includes(b)
+        return atA && !atB ? b : atB && !atA ? a : undefined
+    }
+    let fromConn: string | undefined, toConn: string | undefined
+    if (ids.length === 1) {
+        const [a, b] = graph.ends.get(ids[0])!
+        // a stated end tells which way the line reads; without one, the order its name gives the two places
+        const named = (connId?: string) => {
+            const token = endpointToken(doc, placeOf(connId), 'site')
+            return token ? `_${line.name}_`.indexOf(`_${token}_`) : -1
+        }
+        const reversed = line.from || line.to
+            ? (!!line.from && sameRef(placeOf(b), line.from)) || (!!line.to && sameRef(placeOf(a), line.to))
+            : named(a) >= 0 && named(b) >= 0 && named(b) < named(a)
+        ;[fromConn, toConn] = reversed ? [b, a] : [a, b]
+    } else {
+        fromConn = outer(ids[0], ids[1])
+        toConn = outer(ids[ids.length - 1], ids[ids.length - 2])
+    }
+    const from = line.from ?? placeOf(fromConn), to = line.to ?? placeOf(toConn)
+    // never guess both ends into one place
+    if (from && to && sameRef(from, to)) return {from: line.from, to: line.to}
+    return {from, to}
+}
+
+/** Lines missing an end, each with the ends guessed from its sections (`guessLineEnds`); `filled` lists the ends it gets. */
+export function fillLineEnds(doc: NetworkDocument, graph = buildCircuitGraph(doc)): { line: TransmissionLineRecord; updated: TransmissionLineRecord; filled: ('from' | 'to')[] }[] {
+    return doc.lines.filter(l => !l.from || !l.to).map(line => {
+        const guess = guessLineEnds(doc, line, graph)
+        const filled = (['from', 'to'] as const).filter(end => !line[end] && guess[end])
+        return {line, updated: {...line, ...(guess.from ? {from: guess.from} : {}), ...(guess.to ? {to: guess.to} : {})}, filled}
+    })
+}
+
 export function linesOfCircuit(doc: NetworkDocument, circuitId: string): TransmissionLineRecord[] {
     return doc.lines.filter(l => l.circuitIds.includes(circuitId))
 }
@@ -250,8 +376,8 @@ export function lineWarnings(doc: NetworkDocument, line: TransmissionLineRecord,
         st.empty ? 'no sections' : '',
         st.missing.length ? `${st.missing.length} unknown section${st.missing.length === 1 ? '' : 's'}` : '',
         st.notContiguous ? 'sections not joined' : '',
-        !line.from ? 'no FROM yard' : st.fromMismatch ? 'first section does not reach FROM' : '',
-        !line.to ? 'no TO yard' : st.toMismatch ? 'last section does not reach TO' : '',
+        !line.from ? 'no FROM end' : st.fromMismatch ? 'first section does not reach FROM' : '',
+        !line.to ? 'no TO end' : st.toMismatch ? 'last section does not reach TO' : '',
     ].filter(Boolean)
 }
 

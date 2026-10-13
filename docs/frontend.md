@@ -652,8 +652,7 @@ immediately.
   through a circuit now end (start) at the new place: the new sections
   replace the sections beyond the old end, which leave the line (circuits
   left in no line are noted with ⚠), and the line's end becomes the new
-  yard, or is cleared when the new place is a junction (lines run yard to
-  yard). Lines that shared the circuit up to a tee at the old end end up
+  yard, or the junction. Lines that shared the circuit up to a tee at the old end end up
   with the same sections, noted with ⚠. One journaled step after a summary
   confirmation; renaming the new path, the new and changed circuits and the
   lines by the model rules is offered (reused paths and lines without both
@@ -720,7 +719,15 @@ immediately.
   and changing the search or filters goes back to the first page), the
   regenerate box; *Paths* adds a
   count and a **Delete unused** button for paths no circuit uses (new lines
-  are made with the toolbar's *+ Line* wizard). Every row ends with a × that
+  are made with the toolbar's *+ Line* wizard); *Lines* adds a count of the
+  lines missing an end and **Fill missing ends (n)**, which sets every FROM /
+  TO a line does not state from its own sections (`fillLineEnds` /
+  `guessLineEnds` in `src/network/lines.ts`: where the first / last section
+  leaves the line, a yard or a junction; a single section runs along the
+  line unless a stated end, or else the line name `<kV>_<from>_<to>_L<n>`,
+  says it runs the other way; an end stays unset when that section end is
+  not connected) in one journaled step after a confirmation listing the
+  changes, then offers to rename the lines by the model rules. Every row ends with a × that
   deletes the record after a confirmation naming what goes with it (a site
   with its yards and site junction, a yard with its contents, a junction with
   its nodes, a path with its circuits, a circuit alone; a line opens the
@@ -756,9 +763,14 @@ immediately.
   line's FROM or TO) and *Lines passing through the junction* (sections
   spliced at the site's junction, or at the junction itself in a junction
   panel, of a line that ends elsewhere; each names the junction).
-* Panels: path (name, FROM / TO ends, a site or a junction, shown as links
-  with set / detach where detaching also
-  detaches the circuits there, edit waypoints, circuits on the path with
+* Panels: path (name, FROM / TO ends: a select of every site and every
+  line junction (a route runs between places: a site's own junction is at
+  the site and a yard is not a place of its own, so neither is offered; an
+  end naming one shows as its site), changeable at any time, with a link to
+  the place, the circuits attached there and *detach*; moving or detaching
+  an end detaches the circuit ends at the old place after a confirmation
+  (`PathEndRow`; the same site / junction list feeds *+ Path* and *Re-route
+  lines*), edit waypoints, circuits on the path with
   drill-down and ⚠ markers, each with its line(s) as links and a tower
   position select ("auto (T1 1 (top left))" or a tower and number;
   `CircuitsWithTower`), then, below the list, a collapsible *Towers* section
@@ -825,26 +837,38 @@ immediately.
   adopts the connection voltage, and the circuit rows in the path, site,
   junction and find lists carry the same ⚠ marker; below it a **Lines**
   panel lists the lines the circuit is a section of, with a "remove" per
-  line, and shows a hint when the circuit is joined substation to
-  substation through junction nodes: "💡 Substation to substation: A → B
-  (n sections)" with a **Group into line** button that creates a
-  `TransmissionLineRecord` (name `<kV>_<site>_<site>_L<n>`, numbered per pair of substations, ends and sections
-  from `proposalsForCircuit`) and selects it; at a tee a select offers each
-  pair of substations the circuit can be part of, so a section can be put
-  into several lines (a tie); an existing line with the same sections shows
-  "already grouped as …" instead), line (name, voltage, FROM / TO yard,
-  *Swap from / to* which exchanges the yards and reverses the sections and
+  line, and **Form a line**: walking from the circuit through junction
+  nodes, every yard node and junction node reached on either side is a
+  place the line can end at (`lineEndCandidates` in `src/network/lines.ts`:
+  a yard ends the walk, a junction (a site junction or a line junction) is
+  also passed on; fewest sections first; a circuit end that is not
+  connected gives an unset end). *From* lists the places on the circuit's
+  FROM side and *To* those on its TO side, labelled with the place, the
+  node when the junction has several and how many sections further; the
+  nearest yard that still leaves a line to form is preselected. A pair is
+  offered disabled, with the reason, when it would duplicate a line that
+  already uses this circuit, lie within one or contain one (`formLine`:
+  "already line …", "within line …", "would contain line …: extend that
+  line instead"), when both ends are the same place or the two sides
+  share a section; lines that only share part of their sections (a tie at
+  a tee) are fine. The preview names the line (`<kV>_<from>_<to>_L<n>`) and
+  its sections; **Form line** creates it, sections FROM → TO along the
+  circuit, and selects it; when nothing is left the panel says so), line
+  (name, voltage, FROM / TO end: a yard, a site junction or a line junction
+  (a junction end: the line stays open there or ties in),
+  *Swap from / to* which exchanges the ends and reverses the sections and
   then asks whether to regenerate the id and name from the rules, since
   `<kV>_<from>_<to>_L<n>` reads the other way round (the selection follows
-  a new id),
+  a new id), **Fill missing ends** when the line does not state an end and
+  its sections tell where it is (`guessLineEnds`),
   ordered sections with swatch, move up / down, remove, "Order along route",
   "Add section" offering the circuits joined to either end, ⚠ notice for
-  sections that are not joined or do not reach the stated yards; selecting a
+  sections that are not joined or do not reach the stated ends; selecting a
   line highlights all its sections on the map and *Find* lists lines; the
   site panel lists the lines ending at its yards), overview (the tab strip
   described under *Find* above, then network name and description, counts,
   loose circuits; the toolbar's *+ Line* opens the **New line** wizard in
-  the side panel (`lineWizard.ts`: pick the FROM and TO ends, each a site, then one of its yards (the circuits leave it through take-offs; the yard at the other end's voltage, else the highest, is preselected) or its site junction (created when missing), or a line junction (`LineEndField`; end keys `Y:` / `G:` / `J:`, `NewLineSpec.from` / `to`); at a junction end each circuit gets a node of its own and the line's end there stays open (a line runs yard to yard; it is extended later; lines toward an open end take the next free `L<n>`), a take-off facing a line junction is named after it, and the voltage must be picked when neither end is a yard; an optional *Energized voltage* (e.g. 0V de-energized) is set on every new section instead of the one their connections give; then optionally the stops
+  the side panel (`lineWizard.ts`: pick the FROM and TO ends, each a site, then one of its yards (the circuits leave it through take-offs; the yard at the other end's voltage, else the highest, is preselected) or its site junction (created when missing), or a line junction (`LineEndField`; end keys `Y:` / `G:` / `J:`, `NewLineSpec.from` / `to`); at a junction end each circuit gets a node of its own and the line ends at that junction, open until it is extended or tied in (lines toward the same open end take the next free `L<n>`), a take-off facing a line junction is named after it, and the voltage must be picked when neither end is a yard; an optional *Energized voltage* (e.g. 0V de-energized) is set on every new section instead of the one their connections give; then optionally the stops
   in between (**+ Junction in between** adds an ordered stop with move up /
   down and remove; a stop is a free junction or a *site*, passed through its
   site junction, which the plan creates named after the site when the site
@@ -883,7 +907,7 @@ immediately.
   exist the leg has no default, the select asks to choose between sharing
   the route and a new path, and *Create* stays disabled until the choice is
   made (sharing adds a ⚠ note); sections follow the
-  direction of a reused path, the line keeps the chosen FROM / TO yards);
+  direction of a reused path, the line keeps the chosen FROM / TO ends);
   the *Paths* tab lists the paths with deletion of the unused ones; legend).
   The toolbar
   also has a *Rename* button; both write a `meta` op.

@@ -236,7 +236,9 @@ export function validateNetworkRecordShape(collection: NetworkCollectionName, re
             for (const end of ['from', 'to'] as const) {
                 const r = record[end]
                 if (r === undefined || r === null) continue
-                if (!isRecord(r) || r.kind !== ConnectionJunctionKind.SUBSTATION || !isNonEmptyString(r.id)) issues.push({path: p(end), message: `${end} must be { kind: SUBSTATION, id } (lines run between yards)`})
+                if (!isRecord(r) || (r.kind !== ConnectionJunctionKind.SUBSTATION && r.kind !== ConnectionJunctionKind.TRANSMISSION_JUNCTION) || !isNonEmptyString(r.id)) {
+                    issues.push({path: p(end), message: `${end} must be { kind: SUBSTATION | TRANSMISSION_JUNCTION, id } (a line ends at a yard, or at a junction where it stays open or ties in)`})
+                }
             }
             const ids = record.circuitIds
             if (!Array.isArray(ids)) issues.push({path: p('circuitIds'), message: 'circuitIds must be an array of circuit ids'})
@@ -401,7 +403,12 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
         }
     })
     d.lines.forEach((l, i) => {
-        for (const end of ['from', 'to'] as const) if (l[end]) ref(`lines.${i}.${end}.id`, l[end]!.id, 'substations', 'substation')
+        for (const end of ['from', 'to'] as const) {
+            const r = l[end]
+            if (!r) continue
+            if (r.kind === ConnectionJunctionKind.TRANSMISSION_JUNCTION) ref(`lines.${i}.${end}.id`, r.id, 'junctions', 'junction')
+            else ref(`lines.${i}.${end}.id`, r.id, 'substations', 'substation')
+        }
         l.circuitIds.forEach((id, k) => ref(`lines.${i}.circuitIds.${k}`, id, 'circuits', 'circuit'))
     })
     d.circuits.forEach((c, i) => {

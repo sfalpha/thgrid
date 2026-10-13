@@ -492,7 +492,7 @@ it unique via `uniqueId()`.
 | `TransmissionJunctionRecord` | `TransmissionJunction` | `coords` | `name`, `groupId` (set on a *site junction*: the one junction a substation site may own, named after the site by default and moving with it; circuits are joined or teed there without entering a yard, and a connection there counts as being at the site for path ends) |
 | `TransmissionPathRecord` | `TransmissionPath` | `name`, `waypoints[]` | `from`, `to` (`ConnectionJunctionRef` of kind SUBSTATION_GROUP or TRANSMISSION_JUNCTION: the site or junction where the route starts / ends; a route is not specific to a voltage, so circuits of any yard of the site may share it) |
 | `TransmissionCircuitRecord` | `TransmissionCircuit` | `name`, `pathId` | `voltage` (rated), `energizedVoltage` (operated at; set from the connection when an end is attached), `bundle`, `conductor` (`{ size, unit, type, code? }`, copied from the conductor template), `current`, `lengthKm`, `lineGroup` / `groupCircuit` (tower position, a drawing hint: the line group is one tower line, several running side by side with 1 on the left, and the circuit's number on it, 1 / 2 on the top pair of arms, left / right looking from the path's FROM end, 3 / 4 on the pair below, and so on; unset = assigned when drawn, two per new tower, see `web/src/network/towerLayout.ts`; a position taken twice on one path warns) (no template reference is stored; `conductorTemplateId` is a deprecated leftover of older documents) |
-| `TransmissionLineRecord` | `TransmissionLine` | `name`, `circuitIds[]` (sections, FROM → TO) | `voltage`, `from`, `to` (`ConnectionJunctionRef` of kind SUBSTATION: the yards the line runs between) |
+| `TransmissionLineRecord` | `TransmissionLine` | `name`, `circuitIds[]` (sections, FROM → TO) | `voltage`, `from`, `to` (`ConnectionJunctionRef`: a yard, kind SUBSTATION, or a junction, kind TRANSMISSION_JUNCTION: a site's own junction or a line junction where the line stays open or ties in) |
 | `ConnectionRecord` | `TransmissionConnection` + in-yard wiring (`voltage` of the node when not the yard's, `current` limit in A; see 6.5) | `scope`, `junction`, `nodes[]`; `name` when located at a junction | `voltage` (nominal voltage of the node, informational: it does not restrict connected circuits) |
 | `SubstationYardConnectionRecord` | yard link | `name`, `yardAId`, `yardBId` (two different yards), `nodes[]` (buses, equipment terminals and take-offs of either yard; a node in at most one link) | `voltage` (informational) |
 
@@ -561,14 +561,18 @@ graphically:
   with a ⚠. Older documents whose path ends named yards
   are lifted to the yard's site by `migrateNetworkDocument`.
 * **Line** – a named group of circuit sections joined end to end through
-  TRANSMISSION connections, from one yard to another: `circuitIds` lists the
-  sections FROM → TO, `from` / `to` name the yards. The circuits form a graph
-  (nodes = transmission connections, edges = circuits; `src/network/lines.ts`):
-  a line is a walk through it that passes junction nodes and stops at yards.
+  TRANSMISSION connections: `circuitIds` lists the sections FROM → TO,
+  `from` / `to` name where it starts and ends, a yard or a junction (a
+  site's own junction or a line junction, where the line stays open or ties
+  in). The circuits form a graph (nodes = transmission connections, edges =
+  circuits; `src/network/lines.ts`): a line is a walk through it that passes
+  junction nodes and stops at yards, or ends at a junction node.
   A circuit may be a section of several lines (a *tie*: two lines that leave
-  the same yard and part at a tee share the section up to the tee). The
-  circuit panel detects when a circuit is joined substation to substation
-  (`proposalsForCircuit`) and offers to group the chain into a line; the line
+  the same end and part at a tee share the sections up to the tee). The
+  circuit panel's *Form a line* offers every yard or junction node reachable
+  from a circuit on either side as an end (`lineEndCandidates`) and forms
+  the chain between the two picked (`formLine`), unless it would duplicate,
+  lie within or contain a line already using the circuit; the line
   panel reports sections that are not joined or do not reach the stated
   ends (`lineStatus`). Deleting a circuit removes it from its lines; deleting
   a line keeps its circuits. A line exists only while it has at least one

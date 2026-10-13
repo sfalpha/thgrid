@@ -210,9 +210,9 @@ export interface TransmissionCircuitRecord extends NetworkRecordBase {
 export interface TransmissionLineRecord extends NetworkRecordBase {
     name: string
     voltage?: TransmissionVoltage
-    /** Yard the line starts at. */
+    /** Where the line starts: a yard (SUBSTATION), or a junction (TRANSMISSION_JUNCTION: a site's own junction or a line junction, where the line stays open or ties in). */
     from?: ConnectionJunctionRef
-    /** Yard the line ends at. */
+    /** Where the line ends, as `from`. */
     to?: ConnectionJunctionRef
     /** Circuit sections, ordered FROM → TO. */
     circuitIds: string[]
