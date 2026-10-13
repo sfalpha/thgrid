@@ -696,7 +696,9 @@ under a new, network-unique id and rewrites every reference: parent ids, path
 and line ids, path ends, connection junctions and nodes; `checkNewId` gives the
 reason a new id is refused), `cascadeDeleteOps(doc, collection, id)` (deletes a record with its
 dependants and prunes it from connections, dropping connections left with
-fewer than two nodes; deleting a site deletes its generation units; deleting a bay keeps its take-offs but clears their
+fewer than two nodes; deleting a site deletes its generation units; lines
+ending at a deleted yard or junction lose that end (renaming one carries
+the line ends along); deleting a bay keeps its take-offs but clears their
 `bayId`), `uniqueId(doc, prefix)`, `connectionsOfNode`, `findRecord`.
 Undo/redo in the UI is implemented with inverse ops, so undos are journaled
 too.

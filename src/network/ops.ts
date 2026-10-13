@@ -113,6 +113,13 @@ export function cascadeDeleteOps(doc: NetworkDocument, collection: NetworkCollec
             ops.push({type: 'upsert', collection: 'paths', record: {...p, from: p.from?.id === locationId ? undefined : p.from, to: p.to?.id === locationId ? undefined : p.to}})
         }
     }
+    /** Lines ending at a deleted yard or junction lose that end (they keep their sections). */
+    const clearLineEnds = (locationId: string) => {
+        for (const l of doc.lines) {
+            if (l.from?.id !== locationId && l.to?.id !== locationId) continue
+            ops.push({type: 'upsert', collection: 'lines', record: {...l, from: l.from?.id === locationId ? undefined : l.from, to: l.to?.id === locationId ? undefined : l.to}})
+        }
+    }
     const removeNodes = (predicate: (n: ConnectionRecord['nodes'][number]) => boolean) => {
         for (const conn of doc.connections) {
             if (deleted.has(`connections:${conn.id}`)) continue
@@ -145,6 +152,7 @@ export function cascadeDeleteOps(doc: NetworkDocument, collection: NetworkCollec
             break
         case 'substations':
             clearPathEnds(id)
+            clearLineEnds(id)
             for (const c of doc.connections.filter(c => c.junction.id === id)) del('connections', c.id)
             for (const yc of (doc.yardConnections ?? []).filter(yc => yc.yardAId === id || yc.yardBId === id)) del('yardConnections', yc.id)
             for (const b of doc.buses.filter(b => b.substationId === id)) del('buses', b.id)
@@ -173,6 +181,7 @@ export function cascadeDeleteOps(doc: NetworkDocument, collection: NetworkCollec
             break
         case 'junctions':
             clearPathEnds(id)
+            clearLineEnds(id)
             for (const c of doc.connections.filter(c => c.junction.id === id)) del('connections', c.id)
             break
         case 'paths':
@@ -304,6 +313,7 @@ export function renameRecordOps(doc: NetworkDocument, collection: NetworkCollect
         }
         case 'junctions':
             for (const p of doc.paths) if (p.from?.id === oldId || p.to?.id === oldId) up('paths', {...p, from: swapRef(p.from), to: swapRef(p.to)})
+            for (const l of doc.lines) if (l.from?.id === oldId || l.to?.id === oldId) up('lines', {...l, from: swapRef(l.from), to: swapRef(l.to)})
             for (const c of doc.connections) if (c.junction.id === oldId) up('connections', {...c, junction: {...c.junction, id: newId}})
             break
         case 'paths':
