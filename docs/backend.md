@@ -56,6 +56,7 @@ Shared code used by the backend **and** the UI lives in `src/templates`
 ```bash
 npm install
 npm run seed          # optional: populate data/ with the EGAT standard set
+npm run seed:fixture  # optional: the test fixture as network test_fixture, replaced on every run
 npm run dev           # backend (tsx watch, :3300) + Vite dev server (:5173) together
 npm run dev:server    # backend only
 npm run build         # tsc → dist/, vite build → web/dist/
@@ -242,6 +243,19 @@ template pickers in the editors follow this order) and a
 circuit section).
 Existing files are skipped unless `--force` is passed. The script validates
 every record with the shared validators before writing.
+
+### `npm run seed:fixture` (`scripts/seed-fixture.ts`)
+
+Writes the network the creation tests run on (`lineFixture()` in
+`web/test/fixture.ts`, see docs/testing.md "Fixture") as `test_fixture`
+("Test fixture"; `-- --id <id>` for another id), to try the wizards and
+operations by hand on the same sites and junctions. Every run starts over: the
+network is replaced, its journal is cleared and every archived version is
+removed. With the backend running (`PORT`, default 3300) it goes through the
+API (an import with overwrite, then `DELETE /versions`), so open editors pull
+the new network (the revision continues from the replaced one); otherwise it
+writes `data/networks` directly (revision 0). Typechecked with the tests
+(`web/test/tsconfig.json`, for the `@shared` imports of the fixture).
 
 ### `npm run smoke` (`scripts/smoke.ts`)
 

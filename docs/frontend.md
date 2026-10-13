@@ -3,7 +3,9 @@
 The web UI is a single-page application for creating and editing templates
 and collections. It runs locally against the backend described in
 [backend.md](backend.md) and edits the shapes described in
-[models.md](models.md).
+[models.md](models.md). The test cases of its plan builders (line creation;
+New line and Route via / to / from at places that already carry lines; drafts
+for the other map operations) are in [testing.md](testing.md).
 
 ---
 

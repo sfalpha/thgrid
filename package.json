@@ -23,10 +23,12 @@
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",
     "build:web": "vite build --config web/vite.config.mts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && tsc -p web/test/tsconfig.json --noEmit",
     "start": "node dist/server/index.js",
     "seed": "tsx scripts/seed.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "seed:fixture": "tsx --tsconfig web/test/tsconfig.json scripts/seed-fixture.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "test": "tsx --tsconfig web/test/tsconfig.json web/test/run.ts"
   },
   "dependencies": {
     "express": "^4.22.3",

@@ -26,6 +26,7 @@ Requires Node.js 20 or newer.
 ```bash
 npm install
 npm run seed      # optional: EGAT standard templates and a small sample grid
+npm run seed:fixture  # optional: the test fixture as network test_fixture (replaced, journal and history cleared, on every run)
 npm run dev       # backend on http://127.0.0.1:3300, UI on http://localhost:5173
 npm run dev:host  # same, but the UI listens on all interfaces (IPv4 + IPv6, :5173) and accepts any host name (LAN, Cloudflare tunnel, ...); the API stays local behind the UI's proxy
 ```
