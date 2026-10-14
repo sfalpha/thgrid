@@ -136,7 +136,8 @@ test('LC-O-3d', 'energized voltage given, below the picked yard, no yard at it a
             /^the sections are energized at AC115KV, below their rated AC230KV/],
     })
     const t0 = after?.takeOffs.find(x => x.substationId === yardId('SE', '230KV'))
-    t.check(!!t0 && /^115KV_SC_L\d+$/.test(t0.lineName), 'the auxiliary take-off is named at 115 kV', t0?.lineName)
+    // named with its yard's voltage; its circuit carries 115 kV (checked by verifyLine: takeOffVoltage)
+    t.check(!!t0 && /^230KV_SC_L\d+$/.test(t0.lineName), "the auxiliary take-off is named with its yard's 230 kV", t0?.lineName)
 })
 test('LC-O-3e', 'energized voltage given above a 115 kV yard (no yard at it): refused', t => {
     verifyRefused(t, lineFixture(), spec({from: `Y:${SC}`, to: `Y:${SD}`, voltage: V.AC230KV, energizedVoltage: V.AC230KV}), [/cannot feed a line energized at AC230KV/])

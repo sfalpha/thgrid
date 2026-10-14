@@ -4,6 +4,8 @@
 import {runTests} from './harness'
 import './lineCreation.test'
 import './busyPlaces.test'
+import './naming.test'
+import './operations.test'
 
 const failed = runTests(process.argv[2])
 process.exitCode = failed ? 1 : 0

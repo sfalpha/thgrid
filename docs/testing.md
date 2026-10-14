@@ -144,7 +144,7 @@ and an existing path running the other way are notes.
 | LC-O-3b | energized 230 kV given = rating = yards | 230 kV; nothing reported |
 | LC-O-3c | energized 115 kV given, SH's 230 kV yard picked (SH has a 115 kV yard) | **refused**: "SH 230KV is at AC230KV, the line runs at AC115KV: pick its AC115KV yard 115KV" |
 | LC-O-3c2 | energized 115 kV given, SH's 115 kV yard picked | 115 kV at SH 115 kV; below-rating note |
-| LC-O-3d | energized 115 kV given at SE (230 kV only) | an auxiliary take-off at SE 230 kV whose circuit is at 115 kV, named `115KV_SC_L<n>`; **note** "… new take-offs there carry AC115KV on their circuit (a secondary / auxiliary line)"; below-rating note |
+| LC-O-3d | energized 115 kV given at SE (230 kV only) | an auxiliary take-off at SE 230 kV whose circuit is at 115 kV, named with its yard's voltage, `230KV_SC_L<n>`; **note** "… new take-offs there carry AC115KV on their circuit (a secondary / auxiliary line)"; below-rating note |
 | LC-O-3e | energized 230 kV given between 115 kV-only yards | **refused**: "… cannot feed a line energized at AC230KV" |
 | LC-O-3f | energized 230 kV given on a 115 kV conductor | **refused**: "… above the conductor's rated AC115KV" |
 | LC-O-3g | energized DC 300 kV given on an AC 230 kV conductor | **refused**: "AC and DC do not mix" |
@@ -182,11 +182,11 @@ line names unique within each yard (numbered past the ones in use).
 | Id | Case | Result |
 |---|---|---|
 | BN-Y1 | MA 500 kV → QB 500 kV | new take-offs, 500 kV |
-| BN-Y2 | a fourth line MA 230 kV → MC 230 kV | the direct path MA-MC carries the de-energized line: **refused** until the leg is chosen ("path "MA-MC" already exists but carries 0V circuits; choose …"); on a new path: take-offs `230KV_MC_L4` / `230KV_MA_L4`, line `230KV_MA_MC_L4` |
-| BN-Y3 | the same, sharing MA-MC | allowed; note "path "MA-MC" carries 0V circuits: the new AC230KV sections will share its route" – **open question**: should a de-energized circuit count as another voltage for sharing a path? |
+| BN-Y2 | a fourth line MA 230 kV → MC 230 kV | shares the direct path MA-MC, which carries the de-energized line: any voltage shares a route; note "MA 230KV → MC 230KV: shares the existing path "MA-MC" (it carries 0V circuits)" |
+| BN-Y3 | the same on a new path, by choice | note "… a new path "MA-MC (2)", beside the existing "MA-MC""; take-offs `230KV_MC_L4` / `230KV_MA_L4`, line `230KV_MA_MC_L4` |
 | BN-Y4 | 230 kV conductor, MD 115 kV (five lines) → QB 115 kV | runs at 115 kV, note |
 | BN-Y5 | 230 kV conductor, MA's 500 kV yard picked | **refused**: "MA 500KV is at AC500KV, the line runs at AC230KV: pick its AC230KV yard 230KV" |
-| BN-Y6 | MS 115 kV (empty yard) → MD 115 kV | line `115KV_MS_MD_L2` (`L1` is taken by `115KV_MD_MS_L1`, which ends at the site junction of MS), take-off `115KV_MS_L2` at MD; reuses the path MD-MS, which runs the other way (note) |
+| BN-Y6 | MS 115 kV (empty yard) → MD 115 kV | line `115KV_MS_MD_L2` (`L1` is taken by `115KV_MD_MS_L1`, which ends at the site junction of MS), take-off `115KV_MS_L2` at MD; shares the path MD-MS, which runs the other way (two notes) |
 | BN-J1, J2 | QA 230 / 500 kV → JX | an open node of its own at JX at the line voltage |
 | BN-J3 | QA 115 kV → JQ | a node of its own, not the 115 kV open end there |
 | BN-J4 | JX → JQ (both busy) | 0 V, nodes of their own |
@@ -195,7 +195,7 @@ line names unique within each yard (numbered past the ones in use).
 | BN-V1 | QA → QB via JX, 230 kV | spliced in a node of its own |
 | BN-V2 | via JP, 500 kV | a 500 kV node beside the two 230 kV ones |
 | BN-V3 | via the site MS, 115 kV | a node of its own beside the 115 kV open end |
-| BN-V4 | via JX, JQ and the site MS, 230 kV | four sections, a node of its own at each; JQ → MS reuses the path MS-JQ the other way (note) |
+| BN-V4 | via JX, JQ and the site MS, 230 kV | four sections, a node of its own at each; JQ → MS shares the path MS-JQ, which runs the other way (two notes) |
 | BN-V5 | via JP, de-energized | a 0 V node of its own |
 
 ### 3.3 Route via (`BV-*`, `buildRouteViaPlan`)
@@ -211,11 +211,11 @@ named after the rated voltage. Both parts keep the rated and energized voltage.
 | BV-J1 | 230 kV | JX | a 230 kV node beside the 230 kV open end |
 | BV-J2 | 500 kV | JX | a 500 kV node beside the 500 kV splice |
 | BV-J3 | 230 kV-rated at 115 kV | JX | a 115 kV node beside the 115 kV open end |
-| BV-J4 | de-energized | JX | the node at the rated **230 kV** – **open question** (as RV-7): 0 V? |
+| BV-J4 | de-energized | JX | a **0 V** node of its own beside the 0 V open end (its energized voltage) |
 | BV-J5 | 115 kV (path shared with the 230 kV-rated one) | JQ | a 115 kV node; the other circuit and the path stay |
 | BV-J6 | 500 kV | JP (230 kV only) | a 500 kV node |
 | BV-S1, S2 | 230 / 115 kV | site junction of MS | a node of its own at the line's voltage |
-| BV-S3 | de-energized | site junction of MS | at the rated 230 kV, beside the 0 V open end (open question) |
+| BV-S3 | de-energized | site junction of MS | a 0 V node of its own beside the 0 V open end |
 | BV-Y1 | 230 kV | MA 230 kV (four lines) | take-offs at 230 kV, the line split |
 | BV-Y2 | 500 kV | MA 500 kV | as BV-Y1 at 500 kV |
 | BV-Y3 | 115 kV | MD 115 kV (five lines) | as BV-Y1 at 115 kV |
@@ -223,9 +223,11 @@ named after the rated voltage. Both parts keep the rated and energized voltage.
 | BV-Y5, Y6 | 500 / 230 kV | ME 500 / 230 kV | the yard at its voltage |
 | BV-R1 | 230 kV-rated at 115 kV | MA 230 kV | **refused**: "yard MA 230KV: not at AC115KV (the voltage the circuits are energized at)" |
 | BV-R2 | 500 kV | MC (230 kV only) | **refused** |
-| BV-R3 | de-energized | MA 230 kV | **refused** ("not at 0V") – open question (as RV-6) |
+| BV-R3 | de-energized, 230 kV-rated | MB (500 kV only) | **refused**: "yard MB 500KV: beyond the rating of the de-energized … (AC230KV)" |
 | BV-R4 | 115 kV | MB (500 kV only) | **refused** |
-| BV-C | each quiet line | MA, MB, MC, MD, ME, MS | `yardChoices` offers only the yard at the voltage it runs at: 500 kV at MA, MB, ME; 230 kV at MA, MC, ME, MS; 115 kV and 230 kV-rated at 115 kV at MA, MD, MS; de-energized nowhere |
+| BV-Y7 | de-energized | MA 230 kV | **allowed, a warning** "… is de-energized (0 V): entering yard MA 230KV at AC230KV, it stays de-energized; the take-offs are at the yard's voltage"; take-offs `230KV_QA_L1`, `230KV_QB_L1` at 230 kV; both parts stay 0 V |
+| BV-Y8 | de-energized, 230 kV-rated | MA 115 kV (below its rating) | allowed, the same warning; take-offs `115KV_QA_L1`, `115KV_QB_L1` at 115 kV |
+| BV-C | each quiet line | MA, MB, MC, MD, ME, MS | `yardChoices` offers the yard at the voltage a live circuit runs at: 500 kV at MA, MB, ME; 230 kV at MA, MC, ME, MS; 115 kV and 230 kV-rated at 115 kV at MA, MD, MS; a de-energized (230 kV-rated) one every yard within its rating: 230 and 115 kV at MA, MS; 230 kV at MC, ME; 115 kV at MD; none at MB |
 
 ### 3.4 Route to / Route from (`BT-*` / `BF-*`, `buildRouteEndPlan`)
 
@@ -240,14 +242,15 @@ the take-off left at the old end is reported.
 |---|---|---|---|
 | BT-J1 | 230 kV | JX | a 230 kV node beside the 230 kV open end |
 | BT-J2 | 500 kV | JX | a 500 kV node |
-| BT-J3 | de-energized | JX | the node at the rated 230 kV (open question, as RV-7) |
+| BT-J3 | de-energized | JX | a 0 V node of its own |
 | BT-J4 | 230 kV-rated at 115 kV | JQ | a 115 kV node beside the 115 kV open end |
 | BT-S1 | 115 kV | site junction of MS | a 115 kV node |
 | BT-Y1 | 230 kV | MA 230 kV | a take-off at 230 kV |
 | BT-Y2 | 230 kV-rated at 115 kV | MD 115 kV | a take-off at 115 kV |
 | BT-Y3 | 500 kV | MB 500 kV | a take-off at 500 kV |
 | BT-R1 | 230 kV-rated at 115 kV | MA 230 kV | **refused** ("not at AC115KV") |
-| BT-R2 | de-energized | MC 230 kV | **refused** ("not at 0V", open question) |
+| BT-R2 | de-energized, 230 kV-rated | MB 500 kV | **refused** ("beyond the rating of the de-energized …") |
+| BT-Y4 | de-energized | MC 230 kV | allowed, the de-energized-entry warning; a take-off `230KV_QA_L1` at 230 kV |
 | BF-J1 | 230 kV | from JX | the line now starts at a node of its own there |
 | BF-J2 | 500 kV | from JP | a 500 kV node |
 | BF-S1 | 230 kV | from the site junction of MS | a 230 kV node |
@@ -255,73 +258,122 @@ the take-off left at the old end is reported.
 | BF-Y2 | 500 kV | from ME 500 kV | a take-off at 500 kV |
 | BF-R1 | 115 kV | from ME 230 kV | **refused** ("not at AC115KV") |
 
-## 4. Drafted cases (not automated yet)
+## 4. Junction and take-off naming, place lists (`web/test/naming.test.ts`) – automated
 
-The results below are what the code gives today, probed on the fixture (a
-230 kV conductor unless stated); the expected results are still to be refined.
+A new junction left unnamed is named after the site closest to where it is
+placed, `<site>_J<n>` (`junctionNaming`, `closestSite`), `n` the first
+number no junction of that name or id has; `J<n>` when the network has no
+site. Lists of places show a junction name first, sorted with the sites.
+
+| Id | Case | Result |
+|---|---|---|
+| JN-1 | a network without sites | `J1` (`TJT_J1`), then `J2` |
+| JN-2 | near MA, twice; near ME | `MA_J1` (`TJT_MA_J1`), `MA_J2`; `ME_J1` (numbered per site) |
+| JN-3 | `TJT_MA_J1` in use by a junction named otherwise; a typed name; no position | `MA_J2`; the typed name kept (`TJT_TAP_X`); `J5` (past J1-J4) |
+| JN-4 | a site junction | named after its site: `SV` (`TJT_SV`) |
+| JN-5 | splitting the path MA-MB at a new junction near MB | `MB_J1` |
+| JN-6 | the circuit place list (`circuitPlaceOptions`) | `JX Junction`, no label starting with "Junction", sites and junctions sorted together |
+
+A take-off's line name carries its yard's voltage (`takeOffLineName`,
+`ruleLineName`), also when its circuit runs at another (an auxiliary line).
+
+| Id | Case | Result |
+|---|---|---|
+| TN-1 | Regenerate a take-off named `115KV_SB_L1` in the 230 kV yard of SF, and `230KV_SD_L1` in the 115 kV yard of SC | `230KV_SB_L1`; `115KV_SD_L1` |
+| TN-2 | the line wizard, energized 115 kV at SE (230 kV only) | the auxiliary take-off `230KV_SC_L1`, its circuit at 115 kV; Regenerate leaves it |
+| TN-3 | the circuit wizard, the same | `230KV_SC_L1`, its circuit at 115 kV |
+
+## 5. Other map operations (`web/test/operations.test.ts`) – automated
+
+Create circuit, Create path, Form a line, Route via and Route to / from on
+the base fixture (a 230 kV conductor unless stated). The expected results are
+what the code gives today, to be refined. Every case checks that the result
+validates and that what was there and is not part of the operation is left as
+it was (`unchangedExcept`); line and take-off names stay unique.
 
 A circuit **created or edited by hand** (the circuit wizard, the circuit
 panel) is never refused for its voltages: every mismatch is a **warning**
 (an end at another voltage than the circuit is energized at, energized above
-or below its rating or at another current type, an open end, both ends open
-yet energized); joining circuits that run at the same voltage and a
-de-energized circuit are notes. The circuit panel offers every voltage and
+or below its rating or at another current type, both ends open yet
+energized, an auxiliary take-off); an open end, joining circuits that run at
+the same voltage, a de-energized circuit and the path it runs on (shared, or
+new beside existing ones) are notes, as in the line wizard. A new take-off
+in a yard above the energized voltage, at a site without a yard at it, is
+auxiliary: its circuit carries the energized voltage, as the line wizard
+makes it. The circuit panel offers every voltage and
 shows the same warnings, with a "use …" button per mismatched end. The
 operations on existing circuits (Form a line, Route via / to / from) refuse
-what would not run.
+what would not run. A de-energized circuit may be routed into a yard within
+its rating (warned; it stays 0 V, its take-offs at the yard's voltage), and
+a node it is spliced in takes its energized voltage, 0 V. A path is shared
+whatever its circuits' voltage (0 V included): each leg of a new line says
+whether it shares an existing path or gets a new one.
 
-### 4.1 Create circuit (`buildNewCircuitPlan`, `CC-*`)
+### 5.1 Create circuit (`buildNewCircuitPlan`, `CC-*`)
+
+Each case checks the plan's warnings and notes exactly, the rated and energized
+voltage, whether the circuit follows a path the other way, and each end: the
+yard and its connection voltage through a new take-off (or the existing one
+picked), or the junction and node voltage in a node of its own (or the
+existing node joined, the only record allowed to change).
 
 | Id | Case | Current result |
 |---|---|---|
 | CC-E-1 | SA → SB, default connections | new take-offs at SA 230 kV and SB 230 kV, energized 230 kV; nothing reported |
-| CC-E-2 | site junction ST → line junction J2, nodes of their own | 0 V, both nodes at 0 V; **warnings** "the FROM end is open …", "the TO end is open …"; note "both ends are open: the circuit is de-energized (0 V) until it is connected" |
-| CC-E-3 | SA → SB on the existing path SB → SA | follows the path: FROM SB, TO SA (the plan's `reversed`); nothing reported |
+| CC-E-2 | site junction ST → line junction J2, nodes of their own | 0 V, both nodes at 0 V; notes "the FROM end is open …", "the TO end is open …", "both ends are open: the circuit is de-energized (0 V) until it is connected"; no warning |
+| CC-E-3 | SA → SB on the existing path SB → SA | follows the path: FROM SB, TO SA (the plan's `reversed`); note "shares the existing path "SB-SA", which runs SB → SA: the circuit follows its direction (FROM and TO swapped)" |
 | CC-O-1 | SC → SD (115 kV only) | energized 115 kV, take-offs at 115 kV; **warning** "energized at AC115KV, below its rated AC230KV …" |
 | CC-O-2 | energized 115 kV given, SH (230 + 115 kV) → SC | SH's 115 kV yard by default; below-rating **warning** |
 | CC-O-3 | energized 115 kV given, a new take-off picked in SH 230 kV | **allowed**: the take-off in SH 230 kV at 230 kV; **warnings** "the FROM end: SH 230KV · new take-off … is at AC230KV, the circuit is energized at AC115KV", below rating |
-| CC-O-4 | energized 115 kV given, new take-off at SE (230 kV only) | **allowed**: the take-off at SE 230 kV stays at 230 kV (by hand no auxiliary voltage is set; the line wizard sets one); end and below-rating **warnings** |
-| CC-O-5 | energized 115 kV given, SF's free 230 kV take-off toward SB | **allowed**; **warnings** for the FROM take-off at 230 kV, the TO take-off at 230 kV, below rating |
+| CC-O-4 | energized 115 kV given, new take-off at SE (230 kV only) | an **auxiliary** take-off, as the line wizard makes it: its circuit at 115 kV in the 230 kV yard; **warning** "SE 230KV · new take-off …: its circuit is set to AC115KV, below the yard's AC230KV (a secondary / auxiliary line)", below rating |
+| CC-O-5 | energized 115 kV given, SF's free 230 kV take-off toward SB | **allowed**; **warnings** for the FROM take-off at 230 kV, the auxiliary new take-off at SB (230 kV only: its circuit at 115 kV), below rating |
 | CC-O-6 | energized 115 kV given, joining node J3_1 whose circuits run at 230 kV | **allowed**, the node stays 230 kV; **warnings** "the FROM end: node J3_1 runs at AC230KV, the circuit is energized at AC115KV", below rating |
 | CC-O-7 | SA (230 kV) → SC (115 kV), no energized voltage | energized 230 kV (the FROM yard's); **warning** "the TO end: SC 115KV · new take-off … is at AC115KV, the circuit is energized at AC230KV" |
 | CC-O-8a | 115 kV conductor, energized 230 kV given | **allowed**; **warning** "energized at AC230KV, above its rated AC115KV" |
 | CC-O-8b | energized DC 300 kV given on an AC 230 kV conductor | **allowed**; **warnings** for both ends at AC230KV, and "AC and DC do not mix" |
-| CC-O-9a | both ends open, J1 → J2 | 0 V automatically; two open-end **warnings**; the de-energized note |
-| CC-O-9b | both ends open, energized 230 kV given | 230 kV, nodes at 230 kV; open-end **warnings** and "both ends are open, yet it is energized at AC230KV: nothing feeds it …" |
-| CC-O-9c | both ends open, 0 V given | 0 V; open-end **warnings**; note "de-energized (0 V)" |
-| CC-O-10 | one end open, SA → J2 | 230 kV, the node at 230 kV; **warning** "the TO end is open …" (the line wizard only notes an open end) |
-| CC-O-11 | joining node J3_1 whose circuits run at 230 kV, other end SB | note "the FROM end joins … at node J3_1, all at AC230KV"; no warning |
+| CC-O-9a | both ends open, J1 → J2 | 0 V automatically; notes: the two open ends, de-energized; no warning |
+| CC-O-9b | both ends open, energized 230 kV given | 230 kV, nodes at 230 kV; **warning** "both ends are open, yet it is energized at AC230KV: nothing feeds it …"; open-end notes |
+| CC-O-9c | both ends open, 0 V given | 0 V; notes: the open ends, "de-energized (0 V)" |
+| CC-O-10 | one end open, SA → J2 | 230 kV, the node at 230 kV; note "the TO end is open …" (as in the line wizard) |
+| CC-O-11 | joining node J3_1 whose circuits run at 230 kV, other end SB | notes "the FROM end joins … at node J3_1, all at AC230KV" and "shares the existing path "J3-SB""; no warning |
 
-### 4.2 Create path (`NewPathPanel`, `CP-*`)
+### 5.2 Create path (`buildNewPathPlan`, `CP-*`)
 
-No voltages: a path is not voltage specific, and circuits of any voltage,
+The New path panel's rules, in `newPath.ts` (the panel uses it). No
+voltages: a path is not voltage specific, and circuits of any voltage,
 energized or not, may share it.
 
-| Id | Case | Current result |
+| Id | Case | Result |
 |---|---|---|
-| CP-1 | site → site, site → line junction, junction → junction | the path with its ends, rule name `<from>-<to>` (numbered), no circuits |
-| CP-2 | both ends the same place (a site and its junction count as one) | ⚠ "Both ends are the same place."; Create disabled |
-| CP-3 | a path already runs between the places | ⚠ listed "Already between these ends" (a duplicate unless it gets its own waypoints); Create allowed |
-| CP-4 | swap from / to before creating | the ends exchange |
+| CP-1 | SA → SB, SA's 230 kV yard → J1, J1 → J2, ST's site junction → SB | `SA-SB` (`TPA_SA_SB`), `SA-J1`, `J1-J2`, `ST-SB`: a yard and a site junction stand for their site; no waypoints, no voltage |
+| CP-2 | ST and its site junction; SA and its yard; one end missing | **refused**: "both ends are the same place"; "pick both ends" |
+| CP-3 | a path SA-SB exists | listed (also for SB → SA); the new one `SA-SB (2)` (`TPA_SA_SB_2`); the other way round `SB-SA` |
+| CP-4 | swapped ends, SB → J1 | `SB-J1`, FROM SB, TO J1 |
+| CP-5 | a typed id / name | a free id is used, the name kept; an id in use or invalid: **refused** |
 
-### 4.3 Form a line (`formLine`, `FL-*`)
+### 5.3 Form a line (`formLine`, `FL-*`)
 
-Circuits made by the circuit wizard (no line), offered pairs of ends:
+Circuits made by the circuit wizard (no line). Each case checks the pairs of
+ends offered exactly (by ends and number of sections), their voltage or
+refusal; a pair formed as the panel forms it (its rule name,
+`formedLineVoltageOps`) gives a line at that voltage, its sections energized
+at it, the junction nodes along it set to it, named after the rated voltage,
+contiguous.
 
-| Id | Case | Current result |
+| Id | Case | Result |
 |---|---|---|
-| FL-1 | SA → J3 → SB, 230 kV | offered: SA → J3 (1 section) and SA → SB (2 sections), at 230 kV |
-| FL-2 | 230 kV-rated sections SC → J4 → SD (115 kV yards) | offered at 115 kV (the hint notes running below the rating) |
-| FL-3 | SA (230 kV) → J3 → SC (115 kV), made by hand (warned then) | SA → SC **refused**: "the ends are at different voltages: AC230KV (SA_230KV) and AC115KV (SC_115KV)"; SA → J3 offered at 230 kV |
-| FL-4 | yard → an open junction end (SA → J3) | offered at the yard's 230 kV |
-| FL-5 | SA → J3 → SB at 230 kV, the second section rated 115 kV | SA → SB **refused**: "AC230KV is beyond the rating of section … (AC115KV)" |
-| FL-6 | J1 → J2, both ends open | offered at **0 V** |
-| FL-7 | a junction end tied in to live circuits (J3_1, 230 kV) | J3 → SB and J3 → J4: offered at 230 kV (through to SA / SB too); J3 → SC (115 kV): **refused** "the ends are at different voltages: AC230KV (…) and AC115KV (SC_115KV)" |
-| FL-8 | SA → SB again after it was formed | **refused**: "already line …" (also "within line …", "would contain line …") |
+| FL-1 | SA → J3 → SB, 230 kV | offered: SA → J3 (1 section), SA → SB (2), at 230 kV; SA → SB formed: the J3 node at 230 kV |
+| FL-2 | 230 kV-rated sections SC → J4 → SD (115 kV yards) | offered at 115 kV; formed: line, sections and the J4 node at 115 kV, the line named `230KV_SC_SD_L1` |
+| FL-3 | SA (230 kV) → J3 → SC (115 kV), made by hand | SA → SC **refused**: "the ends are at different voltages: AC230KV (SA_230KV) and AC115KV (SC_115KV)"; SA → J3 offered at 230 kV |
+| FL-4 | yard → an open junction end (SA → J3) | formed at 230 kV, the line ending at J3 |
+| FL-5 | the second section rated 115 kV | SA → SB **refused**: "AC230KV is beyond the rating of section … (AC115KV)" |
+| FL-6 | J1 → J2, both ends open | offered and formed at **0 V**: line and section de-energized |
+| FL-7 | a circuit tied in at the J3 node of the 230 kV line SA → J3 → SB | to J4 (open): J3 → J4, SA → J4, SB → J4 offered at 230 kV; to SC (energized 115 kV): every pair **refused** "the ends are at different voltages" |
+| FL-8 | SA → SB again after it was formed | **refused**: "already line …" |
 
-### 4.4 Route via (`buildRouteViaPlan`, `RV-*`)
+### 5.4 Route via (`buildRouteViaPlan`, `RV-*`)
 
-Automated at the busy places in section 3.3. On a line SA → SB at 230 kV made by the line wizard:
+Also at the busy places, section 3.3. On a line SA → SB at 230 kV made by the line wizard; checked as there (`verifyRouteVia`), with the plan's notes exactly:
 
 | Id | Case | Current result |
 |---|---|---|
@@ -330,13 +382,13 @@ Automated at the busy places in section 3.3. On a line SA → SB at 230 kV made 
 | RV-3 | into SH 230 kV (loop in) | take-offs `230KV_SA_L1` and `230KV_SB_L1` in SH 230 kV, at 230 kV; the line split at SH |
 | RV-4 | 230 kV-rated circuits at 115 kV (SC → SD), yards at SH | 115KV offered; 230KV not: "not at AC115KV (the voltage the circuits are energized at)" |
 | RV-5 | circuits at 230 and 115 kV checked | no yard offered: "the checked circuits run at different voltages (AC230KV, AC115KV)" |
-| RV-6 | de-energized (0 V), yards at SH | no yard offered: "not at 0V …" – **open question**: should a de-energized circuit loop into a yard at any voltage? |
-| RV-7 | de-energized, via J3 | the parts stay at 0 V; the node gets **AC230KV** (the rated voltage, `nodeVoltage`) – **open question**: the line wizard and Form a line give a de-energized line's nodes 0 V |
-| RV-8 | either part on an existing path running the other way | not probed (the circuits on it follow its direction, a note in the confirmation) |
+| RV-6 | de-energized (0 V), yards at SH | both yards offered (within its 230 kV rating); looped into SH 230 kV: **a warning** "… is de-energized (0 V): entering yard SH 230KV at AC230KV, it stays de-energized; …", take-offs `230KV_SA_L1`, `230KV_SB_L1` at 230 kV, the parts at 0 V |
+| RV-7 | de-energized, via J3 | the parts stay at 0 V; the node at **0 V** (its energized voltage, `nodeVoltage`) |
+| RV-8 | the first part on an existing path J3-SA, running the other way | it runs on J3-SA, following its direction (FROM and TO swap); note "path J3-SA runs … follow its direction (FROM and TO swap)" |
 
-### 4.5 Route to / Route from (`buildRouteEndPlan`, `RT-*` / `RF-*`)
+### 5.5 Route to / Route from (`buildRouteEndPlan`, `RT-*` / `RF-*`)
 
-Automated at the busy places in section 3.4. On the same line; route from mirrors route to at the FROM end. The plan's
+Also at the busy places, section 3.4 (`verifyRouteEnd`, the plan's notes exactly). On the same line; route from mirrors route to at the FROM end. The plan's
 "warnings" are notes for the confirmation.
 
 | Id | Case | Current result |
@@ -346,7 +398,7 @@ Automated at the busy places in section 3.4. On the same line; route from mirror
 | RT-2 | to site SS | SS's site junction created; as RT-1 |
 | RT-3 | to SH 230 kV | a new take-off `230KV_SA_L1` in SH 230 kV at 230 kV; the line now ends there; SB's take-off left free |
 | RT-4 | 230 kV-rated circuits at 115 kV (SC → SD), to SH | to SH 230 kV **refused**: "yard SH 230KV: not at AC115KV (…)"; to SH 115 kV: a take-off `115KV_SC_L1` at 115 kV |
-| RT-5 | over existing paths through line junctions (multi-hop) | not probed |
-| RT-6 | a take-off left without a circuit at the old end | reported (kept); removed on request |
-| RT-7 | de-energized (0 V) | to a yard **refused** ("not at 0V …", as RV-6); to J2: sections at 0 V, the new nodes at **AC230KV** (rated, as RV-7) |
-| RT-8 | lines through the circuits | they now end at the new place (RT-1, RT-3) |
+| RT-5 | to SS over existing paths SB → J4 and SS → J4 | two sections spliced in a node of their own at J4; the second follows SS-J4 (FROM and TO swap, a note); the line ends at SS's junction |
+| RT-6 | a take-off left without a circuit at the old end | reported, kept; removed on request with every connection that held it (the plan lists it as removed, no note) |
+| RT-7 | de-energized (0 V) | to SH 230 kV allowed, the de-energized-entry warning, a take-off at 230 kV; to J2: sections and the new nodes at 0 V |
+| RT-8 | the line SA → J3 → SB, routed at J3 to J4 | spliced at J3 in a new node; the line now ends at J4, the section J3-SB dropped from it (in no line now, a note) |
