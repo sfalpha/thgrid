@@ -15,6 +15,7 @@
  * Pure: returns ops plus a summary for the confirmation.
  */
 import {genericConductor} from '@shared/models/transmission.conductor'
+import {TransmissionVoltage} from '@shared/models/transmission.voltage'
 import {
     CIRCUIT_END_FROM,
     CIRCUIT_END_TO,
@@ -38,7 +39,7 @@ import {attachCircuitEndToJunctionOps, attachCircuitEndToTakeOffOps, circuitEndC
 import {haversineKm, locationOfRef} from './mapUtil'
 import {placeKey} from './mergePaths'
 import {polylineKm} from './splitPath'
-import {newTakeOffToward, nodeVoltage, resolveRoutePlace, RouteVia, routePlaceLabel, runVoltage, samePlace, viaPathEnd} from './routeVia'
+import {deEnergizedEntryWarning, newTakeOffToward, nodeVoltage, resolveRoutePlace, RouteVia, routePlaceLabel, runVoltage, samePlace, viaPathEnd} from './routeVia'
 
 /** The new place the circuits run to (or come from): spliced at a junction (a line junction or a site's junction), or into a yard. */
 export type RouteTarget = RouteVia
@@ -302,7 +303,7 @@ export function buildRouteEndPlan(doc: NetworkDocument, pathId: string, circuitI
                 push(...next)
                 node = next[0]?.type === 'upsert' ? next[0].record as ConnectionRecord : undefined
             } else if (place.yard) {
-                const takeOff = newTakeOffToward(probe, place.yard.id, toward, runVoltage(c))
+                const takeOff = newTakeOffToward(probe, place.yard.id, toward)
                 push({type: 'upsert', collection: 'takeOffs', record: takeOff})
                 plan.takeOffs.push(takeOff)
                 push(...attachCircuitEndToTakeOffOps(probe, section.id, outer, takeOff.id))
@@ -350,6 +351,10 @@ export function buildRouteEndPlan(doc: NetworkDocument, pathId: string, circuitI
     if (twins.length) plan.warnings.push(`${twins.join(', ')} now run the same sections (they shared a circuit up to ${plan.endLabel}): delete the one not needed`)
     const reversed = plan.hops.filter(h => h.reversed)
     if (reversed.length) plan.warnings.push(`${reversed.map(h => `path ${h.path.name} runs ${refLabel(doc, h.path.from)} → ${refLabel(doc, h.path.to)}`).join('; ')}: the new sections on ${reversed.length === 1 ? 'it follow its' : 'them follow their'} direction (FROM and TO swap)`)
+    if (place.yard) {
+        const w = deEnergizedEntryWarning(chosen, `yard ${place.site?.groupName ?? ''} ${place.yard.yardName}`, place.yard.voltage)
+        if (w) plan.warnings.push(w)
+    }
     if (plan.freedTakeOffs.length && !plan.takeOffsRemoved) {
         plan.warnings.push(`take-off${plan.freedTakeOffs.length === 1 ? '' : 's'} ${plan.freedTakeOffs.map(t => `${t.lineName} (${refLabel(doc, yardRef(t.substationId))})`).join(', ')} ${plan.freedTakeOffs.length === 1 ? 'is' : 'are'} left without a circuit (kept)`)
     }

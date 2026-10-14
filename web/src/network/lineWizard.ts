@@ -105,10 +105,8 @@ export interface NewLineLegPlan {
     path: { id: string; name: string; created: boolean }
     /** Paths that already run between the stops with circuits at the line voltage (or none): reused by default. */
     existing: TransmissionPathRecord[]
-    /** Paths between the stops whose circuits run at another voltage: offered, but only on an explicit choice. */
+    /** Paths between the stops whose circuits run at other voltages (0 V included): shared just the same, a route is a route; one at the line voltage is preferred. */
     otherVoltage: { path: TransmissionPathRecord; voltages: TransmissionVoltage[] }[]
-    /** Only other-voltage paths exist and nothing was chosen yet: the plan has an error until the user decides (share or new path). */
-    needsDecision: boolean
     /** The reused path runs TO → FROM: the sections on it follow its direction. */
     reversed: boolean
     /** Straight-line distance between the stops. */
@@ -397,34 +395,34 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
         // Paths end at sites, not yards: look the route up (and create it) between the stops' sites / junctions.
         const pa = pathEndOf(probe, a) ?? a, pb = pathEndOf(probe, b) ?? b
         const choice = spec.legs?.[i] ?? {}
+        // a path is a route between two places: one of any voltage (0 V included) is shared, one at the line voltage first;
+        // each leg says whether it shares an existing path or gets a new one
         const {existing, otherVoltage} = reusablePathsBetween(doc, pa, pb, lineVoltage)
+        const legLabel = `${refLabel(probe, a)} → ${refLabel(probe, b)}`
         let path: TransmissionPathRecord | undefined
-        let needsDecision = false
         if (!choice.createPath) {
             if (choice.pathId) {
                 const chosen = doc.paths.find(p => p.id === choice.pathId)
-                const other = otherVoltage.find(o => o.path.id === choice.pathId)
-                if (!chosen) errors.push(`the chosen path for ${refLabel(probe, a)} → ${refLabel(probe, b)} no longer exists`)
-                else if (other) notes.push(`path "${chosen.name}" carries ${other.voltages.join(' / ')} circuits: the new ${lineVoltage} sections will share its route`)
-                else if (!existing.some(p => p.id === chosen.id)) errors.push(`path "${chosen.name}" does not run between ${refLabel(probe, a)} and ${refLabel(probe, b)}`)
+                if (!chosen) errors.push(`the chosen path for ${legLabel} no longer exists`)
+                else if (!existing.some(p => p.id === chosen.id) && !otherVoltage.some(o => o.path.id === chosen.id)) errors.push(`path "${chosen.name}" does not run between ${refLabel(probe, a)} and ${refLabel(probe, b)}`)
                 path = chosen
-            } else if (existing.length) path = existing[0]
-            else if (otherVoltage.length) {
-                // A route exists, but its circuits run at another voltage: the user decides whether to share it or to build a separate one.
-                needsDecision = true
-                errors.push(`${refLabel(probe, a)} → ${refLabel(probe, b)}: ${otherVoltage.length === 1 ? `path "${otherVoltage[0].path.name}" already exists but carries ${otherVoltage[0].voltages.join(' / ')} circuits` : `${otherVoltage.length} paths already exist but carry circuits of another voltage`}; choose whether the new ${lineVoltage} sections share it or get a new path`)
-            }
+            } else path = existing[0] ?? otherVoltage[0]?.path
         }
         let created = false
-        if (!path) {
+        if (path) {
+            const carries = otherVoltage.find(o => o.path.id === path!.id)
+            notes.push(`${legLabel}: shares the existing path "${path.name}"${carries ? ` (it carries ${carries.voltages.join(' / ')} circuits)` : ''}`)
+        } else {
             const naming = pathNaming(probe, pa, pb)
             path = {id: uniqueId(probe, naming.id), name: choice.pathName?.trim() || naming.name, from: pa, to: pb, waypoints: []}
             created = true
             push({type: 'upsert', collection: 'paths', record: path})
+            const there = [...existing, ...otherVoltage.map(o => o.path)]
+            if (there.length) notes.push(`${legLabel}: a new path "${path.name}", beside the existing ${there.map(p => `"${p.name}"`).join(', ')}`)
         }
         const reversed = !created && sameRef(path.from, pb)
         if (reversed) notes.push(`the existing path "${path.name}" runs ${refLabel(probe, b)} ← ${refLabel(probe, a)}: the sections on it follow its direction`)
-        legs.push({from: a, to: b, path: {id: path.id, name: path.name, created}, existing, otherVoltage, needsDecision, reversed, km: legKm(probe, a, b)})
+        legs.push({from: a, to: b, path: {id: path.id, name: path.name, created}, existing, otherVoltage, reversed, km: legKm(probe, a, b)})
         legPaths.push(path)
     }
     if (errors.length) return fail(legs)
@@ -439,13 +437,13 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
         const makeTakeOff = (yard: SubstationRecord, other: LineEnd, pool: SubstationTakeOffRecord[]): SubstationTakeOffRecord => {
             const reuse = spec.reuseTakeOffs ? pool.shift() : undefined
             if (reuse) return reuse
-            const carried = takeOffAt(yard)
-            let lineName = other.siteId ? takeOffLineName(probe, yard.id, other.siteId, carried) : undefined
+            // named with the yard's voltage, also when the take-off's circuit carries another (an auxiliary line)
+            let lineName = other.siteId ? takeOffLineName(probe, yard.id, other.siteId) : undefined
             if (!lineName && other.junction) {
                 const code = other.junction.name ?? other.junction.id
                 let n = 1
-                while (probe.takeOffs.some(t => t.substationId === yard.id && t.lineName === SubstationTakeOff.defaultLineName({targetCode: code, voltage: carried, sequence: n}))) n++
-                lineName = SubstationTakeOff.defaultLineName({targetCode: code, voltage: carried, sequence: n})
+                while (probe.takeOffs.some(t => t.substationId === yard.id && t.lineName === SubstationTakeOff.defaultLineName({targetCode: code, voltage: yard.voltage, sequence: n}))) n++
+                lineName = SubstationTakeOff.defaultLineName({targetCode: code, voltage: yard.voltage, sequence: n})
             }
             lineName ||= `LINE_${probe.takeOffs.filter(t => t.substationId === yard.id).length + 1}`
             const naming = takeOffNaming(probe, yard.id, lineName)

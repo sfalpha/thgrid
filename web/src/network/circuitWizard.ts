@@ -35,8 +35,8 @@ import {applyOps, checkCreateId, NetworkOp, pickId, uniqueId} from '@shared/netw
 import {circuitNaming, Naming, pathNaming, takeOffNaming} from '@shared/network/naming'
 import {junctionRef, siteRef} from '@shared/network/refs'
 import {newSiteJunctionRecord, siteJunctionOf} from '@shared/network/siteJunction'
-import {attachCircuitEndToJunctionOps, attachCircuitEndToTakeOffOps, connectionsAtJunction, freeTakeOffs, takeOffVoltage as takeOffCircuitVoltage} from './linkOps'
-import {haversineKm, locationOfRef, voltageKv} from './mapUtil'
+import {attachCircuitEndToJunctionOps, attachCircuitEndToTakeOffOps, connectionsAtJunction, freeTakeOffs, refLabel, takeOffVoltage as takeOffCircuitVoltage} from './linkOps'
+import {haversineKm, junctionOptionLabel, locationOfRef, voltageKv} from './mapUtil'
 import {freeTakeOffsToward} from './lineWizard'
 import {newTakeOffToward, pathsBetween, samePlace} from './routeVia'
 
@@ -98,6 +98,8 @@ export interface NewCircuitEndPlan {
     voltage?: TransmissionVoltage
     /** Ends in a node of its own at a junction: connected to nothing else. */
     open: boolean
+    /** A new take-off whose circuit is set below its yard's voltage (a secondary / auxiliary line). */
+    auxiliary?: TransmissionVoltage
     label: string
 }
 
@@ -230,8 +232,11 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
                     errors.push(`yard ${connect.yardId} is not a yard of ${site.groupName}`)
                     return out
                 }
-                // made by hand: the take-off goes where it was picked, at its yard's voltage (a mismatch is warned below)
-                const carried = yard.voltage
+                // made by hand: the take-off goes where it was picked, at its yard's voltage (a mismatch is warned below);
+                // below it, at a site without a yard at the energized voltage asked for, its circuit carries that voltage
+                // (a secondary / auxiliary line, as the line wizard makes it; warned below)
+                const auxiliary = asked && energizedVsRated(yard.voltage, asked) === 'lower' && !yardsOf(doc, site.id).some(y => y.voltage === asked) ? asked : undefined
+                const carried = auxiliary ?? yard.voltage
                 const lineName = connect.lineName?.trim()
                 let t: SubstationTakeOffRecord
                 if (lineName) {
@@ -241,10 +246,10 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
                 } else {
                     // named toward the other end: its site, else the junction
                     const target = parsePlace(other.place)
-                    t = newTakeOffToward(probe, yard.id, target ? (target.kind === 'G' ? siteRef(target.id) : junctionRef(target.id)) : undefined, carried)
+                    t = newTakeOffToward(probe, yard.id, target ? (target.kind === 'G' ? siteRef(target.id) : junctionRef(target.id)) : undefined)
                 }
                 push({type: 'upsert', collection: 'takeOffs', record: t})
-                Object.assign(out, {takeOff: t, takeOffCreated: true, yard, voltage: carried, label: `${site.groupName} ${yard.yardName} · new take-off ${t.lineName}`})
+                Object.assign(out, {takeOff: t, takeOffCreated: true, yard, voltage: carried, auxiliary, label: `${site.groupName} ${yard.yardName} · new take-off ${t.lineName}`})
                 return out
             }
             // the site junction, created when the site has none
@@ -299,7 +304,9 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
     if (chosen) {
         path = chosen
         plan.reversed = !samePlace(doc, chosen.from, from.ref)
+        notes.push(`shares the existing path "${chosen.name}"${plan.reversed ? `, which runs ${refLabel(doc, chosen.from)} → ${refLabel(doc, chosen.to)}: the circuit follows its direction (FROM and TO swapped)` : ''}`)
     } else {
+        if (pathChoices.length) notes.push(`a new path, beside the existing ${pathChoices.map(p => `"${p.name}"`).join(', ')}`)
         idProblem('path id', spec.newPathId)
         const naming = pathNaming(probe, from.ref, to.ref, spec.newPathName)
         path = {id: pickId(probe, spec.newPathId, naming.id), name: naming.name, from: from.ref, to: to.ref, waypoints: []}
@@ -334,7 +341,7 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
     }
     // attach both ends (the circuit is added last: the helpers' energize ops are not needed, the voltage is set above)
     const attach = (end: NewCircuitEndPlan, endSpec: NewCircuitEndSpec, circuitEnd: CircuitEnd) => {
-        const opts = {newId: endSpec.connectionId?.trim() || undefined, newName: endSpec.connectionName?.trim() || undefined}
+        const opts = {newId: endSpec.connectionId?.trim() || undefined, newName: endSpec.connectionName?.trim() || undefined, voltage: end.auxiliary}
         const next = end.takeOff ? attachCircuitEndToTakeOffOps(probe, circuit.id, circuitEnd, end.takeOff.id, opts)
             : attachCircuitEndToJunctionOps(probe, circuit.id, circuitEnd, end.junction!.id, nodeVoltage, end.node ? {connectionId: end.node.id} : {forceNew: true, ...opts})
         push(...next.filter(o => !(o.type === 'upsert' && o.collection === 'circuits')))
@@ -348,7 +355,8 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
     // 4. what is worth a look
     if (from.site && from.site.id === to.site?.id) warnings.push('both ends belong to the same site')
     for (const [end, side] of [[from, 'FROM'], [to, 'TO']] as const) {
-        if (end.open) warnings.push(`the ${side} end is open: a node of its own at ${end.junction?.name ?? end.junction?.id}, connected to nothing else (pick a node to join, or join it later from the junction panel)`)
+        if (end.auxiliary) warnings.push(`${end.label}: its circuit is set to ${end.auxiliary}, below the yard's ${end.yard?.voltage} (a secondary / auxiliary line)`)
+        if (end.open) notes.push(`the ${side} end is open: a node of its own at ${end.junction?.name ?? end.junction?.id}, connected to nothing else (pick a node to join, or join it later from the junction panel)`)
     }
     for (const [end, side] of [[from, 'FROM'], [to, 'TO']] as const) {
         const joined = end.node ? runningVoltagesAt(probe, end.node, [circuit.id]).circuits : []
@@ -373,7 +381,7 @@ export function circuitPlaceOptions(doc: NetworkDocument): { value: string; labe
         value: `G:${g.id}`,
         label: `${g.groupName}${g.name && g.name !== g.groupName ? ` – ${g.name}` : ''} (${yardsOf(doc, g.id).map(y => y.yardName).join(', ') || 'no yards'})`,
     }))
-    const junctions = doc.junctions.filter(j => !j.groupId).map(j => ({value: `J:${j.id}`, label: `Junction ${j.name ?? j.id}`}))
+    const junctions = doc.junctions.filter(j => !j.groupId).map(j => ({value: `J:${j.id}`, label: junctionOptionLabel(j)}))
     return [...sites, ...junctions].sort((x, y) => x.label.localeCompare(y.label))
 }
 

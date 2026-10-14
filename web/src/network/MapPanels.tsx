@@ -35,6 +35,7 @@ import {buildNewLinePlan, NewLineLegSpec, NewLineSpec, NewLineVia} from './lineW
 import {buildJoinCircuitsPlan, joinableReason} from './joinCircuits'
 import {buildBypassPlan, passThroughs} from './bypassJunction'
 import {buildMergeAllDuplicatesPlan, buildMergePathsPlan, duplicatePathGroups, duplicatesOf, runsReversed} from './mergePaths'
+import {buildNewPathPlan} from './newPath'
 import {buildRouteViaPlan, pathsBetween, RouteVia, routeViaPathChoices, runVoltage, samePlace, yardChoices} from './routeVia'
 import {buildNewCircuitPlan, circuitPlaceOptions, NewCircuitConnect, NewCircuitEndPlan, NewCircuitSpec, suggestedCircuitVoltage, yardsOf} from './circuitWizard'
 import {buildRouteEndPlan, freedTakeOffs, routeEndRoutes, RouteEndRoute, routeKey, RouteTarget} from './routeEnd'
@@ -77,7 +78,7 @@ import {
 } from './linkOps'
 import {describeNode} from './SubstationPanels'
 import {nextJunctionConnectionName} from '@shared/network/migrate'
-import {capacityText, CircuitDraft, CreateDraft, endLocation, generationUnitsOf, haversineKm, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, PLANNED_COLOR, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
+import {capacityText, CircuitDraft, CreateDraft, endLocation, generationUnitsOf, haversineKm, junctionOptionLabel, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, PLANNED_COLOR, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
 import {JunctionSymbol, VoltageSymbol} from './symbols'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 
@@ -222,7 +223,9 @@ function CreatePanel({kind, draft, setDraft, cancel, splitNow}: { kind: 'addSite
     const ed = useNetworkEditor()
     const site = kind === 'addSite'
     const split = kind === 'splitPath'
-    const auto = site ? siteNaming(draft.code.trim().toUpperCase() || `SITE${ed.doc.substationGroups.length + 1}`).id : junctionNaming(ed.doc, draft.name).id
+    // a new junction is named after the site closest to where it is placed, known only on the click (J<n> without sites)
+    const junctionAuto = draft.name.trim() || !ed.doc.substationGroups.length ? junctionNaming(ed.doc, draft.name) : {id: 'TJT_<closest site>_J<n>', name: '<closest site>_J<n>'}
+    const auto = site ? siteNaming(draft.code.trim().toUpperCase() || `SITE${ed.doc.substationGroups.length + 1}`).id : junctionAuto.id
     const sel = ed.selection
     const splitPath = split && sel ? (sel.collection === 'paths' ? ed.doc.paths.find(p => p.id === sel.id) : sel.collection === 'circuits' ? ed.doc.paths.find(p => p.id === ed.doc.circuits.find(c => c.id === sel.id)?.pathId) : undefined) : undefined
     const splitCircuits = splitPath ? ed.doc.circuits.filter(c => c.pathId === splitPath.id) : []
@@ -231,7 +234,7 @@ function CreatePanel({kind, draft, setDraft, cancel, splitNow}: { kind: 'addSite
         .filter(j => !splitPath || !(atPathEnd(ed.doc, {kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: j.id}, splitPath.from) || atPathEnd(ed.doc, {kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: j.id}, splitPath.to)))
         .map(j => {
             const g = j.groupId ? ed.doc.substationGroups.find(x => x.id === j.groupId) : undefined
-            return {value: j.id, label: g ? `Site ${g.groupName} · junction ${j.name ?? j.id}` : `Junction ${j.name ?? j.id}`}
+            return {value: j.id, label: g ? `${g.groupName} site junction (${j.name ?? j.id})` : junctionOptionLabel(j)}
         })
         .sort((a, b) => a.label.localeCompare(b.label)) : []
     const chosen = split && draft.existingJunctionId ? ed.doc.junctions.find(j => j.id === draft.existingJunctionId) : undefined
@@ -256,8 +259,8 @@ function CreatePanel({kind, draft, setDraft, cancel, splitNow}: { kind: 'addSite
                                  onChange={v => setDraft({...draft, existingJunctionId: v || undefined})} hint={existingJunctions.length ? 'An existing junction, or a new one' : 'No other junction yet: a new one is created where you click'}/>
                 )}
                 {site && <TextField label="Code" value={draft.code} onChange={v => setDraft({...draft, code: v.toUpperCase()})} placeholder={`SITE${ed.doc.substationGroups.length + 1}`} hint="Short code, e.g. CNO"/>}
-                {!chosen && <TextField label={split ? 'New junction name' : 'Name'} value={draft.name} onChange={v => setDraft({...draft, name: v})} placeholder={site ? (draft.code.trim().toUpperCase() || 'the code') : `JT${ed.doc.junctions.length + 1}`}
-                                       hint={site ? 'Display name; the code when left empty' : undefined}/>}
+                {!chosen && <TextField label={split ? 'New junction name' : 'Name'} value={draft.name} onChange={v => setDraft({...draft, name: v})} placeholder={site ? (draft.code.trim().toUpperCase() || 'the code') : junctionAuto.name}
+                                       hint={site ? 'Display name; the code when left empty' : ed.doc.substationGroups.length ? 'Left empty: named after the site closest to where you click' : undefined}/>}
                 {!chosen && <NewIdField value={draft.id} onChange={v => setDraft({...draft, id: v})} auto={auto}/>}
             </div>
             {chosen && (
@@ -279,17 +282,9 @@ function NewPathPanel({draft, setDraft, setMode, locate}: { draft: PathDraft; se
     const ed = useNetworkEditor()
     const doc = ed.doc
     const options = useEndOptions()
-    /** A draft end as a path end: a site junction stands for its site. */
-    const endRef = (v: string) => {
-        const r = decodeRef(v)
-        return r && (pathEndOf(doc, r) ?? r)
-    }
-    const from = endRef(draft.from), to = endRef(draft.to)
-    const same = !!from && !!to && samePlace(doc, from, to)
-    const auto = from && to && !same ? pathNaming(doc, from, to) : undefined
-    const existing = auto ? pathsBetween(doc, from, to) : []
-    const a = locationOfRef(doc, from), b = locationOfRef(doc, to)
-    const km = a && b && !same ? haversineKm(a.coords, b.coords) : undefined
+    // the ends (a site junction stands for its site), the rule name, the paths already there and the record (`newPath.ts`)
+    const plan = buildNewPathPlan(doc, decodeRef(draft.from), decodeRef(draft.to), {name: draft.name, id: draft.id})
+    const {from, to, same, auto, existing, km} = plan
     const idOk = newIdOk(doc, draft.id)
     const set = (patch: Partial<PathDraft>) => setDraft(d => ({...d, ...patch}))
     const pick = (sel: Selection) => {
@@ -298,9 +293,8 @@ function NewPathPanel({draft, setDraft, setMode, locate}: { draft: PathDraft; se
         locate?.(sel)
     }
     const create = () => {
-        if (!from || !to || same || !idOk) return
-        const naming = pathNaming(doc, from, to, draft.name)
-        const record: TransmissionPathRecord = {id: pickId(doc, draft.id, naming.id), name: naming.name, from, to, waypoints: []}
+        const record = plan.record
+        if (!record) return
         if (ed.apply([{type: 'upsert', collection: 'paths', record}])) pick({collection: 'paths', id: record.id})
     }
     return (
@@ -1214,9 +1208,8 @@ function useEndOptions() {
     const ed = useNetworkEditor()
     const doc = ed.doc
     const sites = doc.substationGroups.map(g => ({value: `G:${g.id}`, label: `${g.groupName}${g.name && g.name !== g.groupName ? ` – ${g.name}` : ''} (${doc.substations.filter(y => y.groupId === g.id).map(y => y.yardName).join(', ') || 'no yards'})`}))
-        .sort((a, b) => a.label.localeCompare(b.label))
-    const junctions = doc.junctions.filter(j => !j.groupId).map(j => ({value: `J:${j.id}`, label: `Junction ${j.name ?? j.id}`})).sort((a, b) => a.label.localeCompare(b.label))
-    return [...sites, ...junctions]
+    const junctions = doc.junctions.filter(j => !j.groupId).map(j => ({value: `J:${j.id}`, label: junctionOptionLabel(j)}))
+    return [...sites, ...junctions].sort((a, b) => a.label.localeCompare(b.label))
 }
 
 const encodeRef = (r?: ConnectionJunctionRef) => r ? `${r.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? 'G' : r.kind === ConnectionJunctionKind.SUBSTATION ? 'S' : 'J'}:${r.id}` : ''
@@ -2371,7 +2364,7 @@ function LineHint({circuit, locate}: { circuit: TransmissionCircuitRecord; locat
         const j = doc.junctions.find(x => x.id === c.ref!.id)
         const site = j?.groupId ? doc.substationGroups.find(g => g.id === j.groupId) : undefined
         const node = c.connectionId && connectionsAtJunction(doc, c.ref.id).length > 1 ? ` · node ${doc.connections.find(x => x.id === c.connectionId)?.name ?? c.connectionId}` : ''
-        return `${site ? `${site.groupName} site junction` : `Junction ${j?.name ?? c.ref.id}`}${node}${sections}`
+        return `${site ? `${site.groupName} site junction` : junctionOptionLabel(j ?? {id: c.ref.id})}${node}${sections}`
     }
     const form = () => {
         if (!chosen || chosen.problem || !naming) return
@@ -2508,9 +2501,9 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
     const viaOptions = [
         ...doc.substationGroups.filter(g => !endPlaces.has(g.id)).map(g => {
             const j = siteJunctionOf(doc, g.id)
-            return {value: `G:${g.id}`, label: `Site ${g.groupName} (${j ? `junction ${j.name ?? j.id}` : 'new site junction'})`}
+            return {value: `G:${g.id}`, label: `${g.groupName} site (${j ? `its junction ${j.name ?? j.id}` : 'a new site junction'})`}
         }),
-        ...doc.junctions.filter(j => !j.groupId && !endPlaces.has(j.id)).map(j => ({value: `J:${j.id}`, label: `Junction ${j.name ?? j.id}`})),
+        ...doc.junctions.filter(j => !j.groupId && !endPlaces.has(j.id)).map(j => ({value: `J:${j.id}`, label: junctionOptionLabel(j)})),
     ].sort((a, b) => a.label.localeCompare(b.label))
     const setVia = (i: number, id: string) => setVias(prev => prev.map((v, k) => k === i ? id : v))
     const removeVia = (i: number) => setVias(prev => prev.filter((_, k) => k !== i))
@@ -2614,16 +2607,14 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
                             {multi && <div className="small span-all"><strong>Leg {i + 1}</strong> · {legName}{leg.km !== undefined ? <span className="muted"> · straight line {leg.km.toFixed(2)} km</span> : null}</div>}
                             {leg.existing.length + leg.otherVoltage.length > 0 ? (
                                 <SelectField label={multi ? 'Route' : `Route ${legName}`} className="span-all"
-                                             value={choice.createPath ? NEW_PATH : choice.pathId ? choice.pathId : leg.needsDecision ? undefined : leg.path.created ? NEW_PATH : leg.path.id}
-                                             emptyLabel="choose: share the existing path or create a new one…"
+                                             value={choice.createPath ? NEW_PATH : choice.pathId ? choice.pathId : leg.path.created ? NEW_PATH : leg.path.id}
                                              options={[
                                                  {value: NEW_PATH, label: 'Create a new path'},
                                                  ...leg.existing.map(p => ({value: p.id, label: `Use existing: ${p.name} (${doc.circuits.filter(c => c.pathId === p.id).length} circuits, ${p.waypoints.length} pts)`})),
                                                  ...leg.otherVoltage.map(o => ({value: o.path.id, label: `Use existing: ${o.path.name} – carries ${o.voltages.join(' / ')} circuits (${doc.circuits.filter(c => c.pathId === o.path.id).length} circuits, ${o.path.waypoints.length} pts)`})),
                                              ]}
                                              onChange={v => setLeg(i, !v || v === NEW_PATH ? {createPath: v === NEW_PATH, pathId: undefined} : {createPath: false, pathId: v})}
-                                             error={leg.needsDecision ? `the existing route carries ${[...new Set(leg.otherVoltage.flatMap(o => o.voltages))].join(' / ')} circuits while this line is ${fromYard?.voltage}: decide before creating` : undefined}
-                                             hint={leg.needsDecision ? undefined : 'A route between these stops already exists: run the new sections on it, or create a separate path'}/>
+                                             hint={leg.path.created ? 'A new path is created; choose an existing one to share its route instead' : `Shares the existing path ${leg.path.name} (any voltage can share a route); choose "Create a new path" for a separate one`}/>
                             ) : <p className="small muted span-all" style={{margin: 0}}>No route between {legName} yet: a new path is created (waypoints can be added afterwards).</p>}
                             {leg.path.created && <TextField label="New path name" value={choice.pathName ?? ''} onChange={v => setLeg(i, {pathName: v})} placeholder={leg.path.name || 'rule name'} className="span-all"/>}
                         </div>
@@ -2632,10 +2623,9 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
             </div>
             {plan.legs.some(l => l.existing.length + l.otherVoltage.length > 0) && (() => {
                 const withPath = plan.legs.filter(l => l.existing.length + l.otherVoltage.length > 0)
-                const verdict = withPath.some(l => l.needsDecision) ? 'Choose, per leg, whether the new sections share it or get a separate path.'
-                    : withPath.every(l => !l.path.created) ? 'The new sections will share it.'
-                        : withPath.some(l => !l.path.created) ? 'Some sections share it, others get a new, separate path.' : 'A new, separate path will be created.'
-                return <Notice kind="warn">⚠ A path already exists between {withPath.map(l => `${stopLabel(l.from)} and ${stopLabel(l.to)}`).join(', ')}. <b>{verdict}</b></Notice>
+                const verdict = withPath.every(l => !l.path.created) ? 'The new sections will share it.'
+                    : withPath.some(l => !l.path.created) ? 'Some sections share it, others get a new, separate path.' : 'A new, separate path will be created.'
+                return <Notice kind="info">ⓘ A path already exists between {withPath.map(l => `${stopLabel(l.from)} and ${stopLabel(l.to)}`).join(', ')}. <b>{verdict}</b> Pick per leg in <i>Route</i>.</Notice>
             })()}
             {plan.warnings.map(w => <p key={w} className="small warn-dot" style={{margin: '6px 0 0', whiteSpace: 'normal'}}>⚠ {w}</p>)}
             {plan.notes.map(n => <p key={n} className="small info-text" style={{margin: '6px 0 0'}}>ⓘ {n}</p>)}
@@ -2676,7 +2666,7 @@ function LineEndField({label, value, other, onChange}: { label: string; value: s
     const otherPlace = lineEndPlace(doc, other)
     const placeOptions = [
         ...doc.substationGroups.filter(g => g.id !== otherPlace).map(g => ({value: `S:${g.id}`, label: `${g.groupName}${g.name && g.name !== g.groupName ? ` – ${g.name}` : ''}`})),
-        ...doc.junctions.filter(j => !j.groupId && j.id !== otherPlace).map(j => ({value: `J:${j.id}`, label: `Junction ${j.name ?? j.id}`})),
+        ...doc.junctions.filter(j => !j.groupId && j.id !== otherPlace).map(j => ({value: `J:${j.id}`, label: junctionOptionLabel(j)})),
     ].sort((a, b) => a.label.localeCompare(b.label))
     const yards = site ? doc.substations.filter(y => y.groupId === site.id).sort((a, b) => voltageKv(b.voltage) - voltageKv(a.voltage)) : []
     const siteJunction = site ? siteJunctionOf(doc, site.id) : undefined
@@ -2712,7 +2702,7 @@ function useLineEndOptions() {
     const yards = doc.substations.map(y => ({value: `S:${y.id}`, label: `${site(y.groupId)?.groupName ?? '?'} ${y.yardName} (${y.voltage})`}))
     const junctions = doc.junctions.map(j => {
         const g = site(j.groupId)
-        return {value: `J:${j.id}`, label: g ? `${g.groupName} site junction (${j.name ?? j.id})` : `Junction ${j.name ?? j.id}`}
+        return {value: `J:${j.id}`, label: g ? `${g.groupName} site junction (${j.name ?? j.id})` : junctionOptionLabel(j)}
     })
     return [...yards, ...junctions].sort((a, b) => a.label.localeCompare(b.label))
 }

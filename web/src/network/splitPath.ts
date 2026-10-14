@@ -33,7 +33,7 @@ import {atPathEnd, junctionRef, pathEndOf} from '@shared/network/refs'
 import {haversineKm, locationOfRef} from './mapUtil'
 
 export interface SplitPathOptions {
-    /** Name of the new junction (rule name `JT<n>` when empty). */
+    /** Name of the new junction (when empty, the rule name after the site closest to it, `<site>_J<n>`). */
     junctionName?: string
     /** Id of the new junction (generated when empty). */
     junctionId?: string
@@ -115,7 +115,7 @@ export function buildSplitPathPlan(doc: NetworkDocument, pathId: string, at: Coo
     let junction: TransmissionJunctionRecord
     if (existing) junction = existing
     else {
-        const jn = junctionNaming(doc, opts.junctionName)
+        const jn = junctionNaming(doc, opts.junctionName, coords)
         junction = {id: pickId(doc, opts.junctionId, jn.id), name: jn.name, coords}
         push({type: 'upsert', collection: 'junctions', record: junction})
     }

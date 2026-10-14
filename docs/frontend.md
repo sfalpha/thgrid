@@ -325,6 +325,10 @@ immediately.
   not block saving.
 * Ordering: every dropdown of sites, yards or junctions in the panels is
   sorted alphabetically (sites by code, yards by name, junctions by name).
+  Where sites and junctions share a list (path ends, route targets, circuit
+  and line ends, stops in between) they are sorted together and a junction
+  reads name first, `JX Junction` (`junctionOptionLabel`), a site junction
+  `MS site junction (MS)`: typing a name in the list finds either.
   Template pickers (`useTemplates`) are the exception: they follow the order
   of the collections, as returned by the API, so the EGAT standard set runs
   from the smaller conductors to the larger ones; templates that belong to no
@@ -525,8 +529,10 @@ immediately.
   clicking a line selects its *transmission path* because parallel circuits
   overlap, the path panel lists its circuits with an *Edit* button per
   circuit, and the circuit panel has a back link to the path),
-  **+ Site** / **+ Junction** (click on the map), **+ Path** (opens the "New
-  path" panel, `NewPathPanel`: click the site or junction where the route
+  **+ Site** / **+ Junction** (click on the map; a junction left unnamed is
+  named after the site closest to the click, `<site>_J<n>`, `J<n>` without
+  sites; splitting a path at a new junction names it the same way), **+ Path** (opens the "New
+  path" panel, `NewPathPanel` on `buildNewPathPlan` in `newPath.ts`: click the site or junction where the route
   starts, then where it ends, or pick them in its *From* / *To* selects;
   a right-click on a picked site or junction takes it out again (the ends
   are a `PathDraft` shared by the map and the panel, highlighted on the
@@ -581,11 +587,15 @@ immediately.
      take-off in the yard picked, at its yard's voltage, or a node, at the
      voltage its circuits run at) at another voltage than the circuit is
      energized at (0V suits anything), an energized voltage above or below
-     the rating or of another current type (`energizedVsRated`), an open
-     end, both ends open yet energized (a non-zero energized voltage given),
-     and both ends in one site; blue ⓘ notes (`NewCircuitPlan.notes`) name
-     what needs no fixing: de-energized, an end joining circuits at the same
-     voltage. The energized voltage picked only steers the default
+     the rating or of another current type (`energizedVsRated`), both ends
+     open yet energized (a non-zero energized voltage given), an auxiliary
+     take-off, and both ends in one site; a new take-off in a yard above the
+     energized voltage picked, at a site without a yard at it, is auxiliary
+     as the line wizard makes it (its circuit carries that voltage); blue ⓘ
+     notes (`NewCircuitPlan.notes`) name what needs no fixing: an open end,
+     de-energized, an end joining circuits at the same voltage, and the path:
+     the existing one shared (running the other way: the circuit follows it,
+     FROM and TO swapped) or a new one beside existing ones. The energized voltage picked only steers the default
      connections (the yard at it, within the rating). *Create circuit* writes
      everything in one journaled step (site junctions, take-offs, the path,
      the circuit and its two TRANSMISSION connections; a new node gets the
@@ -654,12 +664,16 @@ immediately.
   site or junction other than the path's ends. For a site, *Connect at*
   offers **Pass through the site junction** (created when the site has none)
   or **Into yard …**; a yard is selectable only when it is at the voltage
-  every checked circuit runs at (energized voltage, else rated;
-  `yardChoices`, `runVoltage`), the others are listed disabled with the
+  every checked live circuit runs at (energized voltage, else rated;
+  `yardChoices`, `runVoltage`); a de-energized (0 V) circuit may enter any
+  yard within its rating (the same current type, not above it), warned in
+  the summary: it stays de-energized, its take-offs at the yard's voltage
+  (`deEnergizedEntryWarning`); the others are listed disabled with the
   reason. Each circuit is cut at the path segment nearest to the via point:
   the original keeps the first part (length shared by distance) and a
   continuation (same make-up) runs on to where the original used to end.
-  Through a junction both parts are spliced in one node and lines keep them
+  Through a junction both parts are spliced in one node, at the voltage the
+  circuit is energized at (0 V for a de-energized one; `nodeVoltage`), and lines keep them
   as consecutive sections; into a yard each part gets a new take-off toward
   its far end and every line through the circuit is split at the yard (the
   first part keeps the line, a new line runs on from the yard). When every
@@ -698,9 +712,12 @@ immediately.
   section per path, consecutive sections spliced in a node of their own at
   each junction passed; sections on a path running the other way follow
   it, FROM and TO swapped (noted with ⚠).
+  The nodes the sections are spliced or end in take the voltage the circuit
+  is energized at (0 V for a de-energized one).
   At a site, *Connect at* offers **Into yard …** (default: the first yard
-  at the voltage every checked circuit runs at, the others disabled with
-  the reason, as for *Route via*): the last section enters it through a
+  at the voltage every checked circuit runs at, a de-energized one any yard
+  within its rating, warned; the others disabled with the reason, as for
+  *Route via*): the last section enters it through a
   new take-off named after the far station of the line; or the **Site
   junction** (created when missing). At a junction (or the site junction)
   the last section ends in a node of its own, to be joined to others from
@@ -1012,14 +1029,12 @@ immediately.
   `<kV>_<site>_<site>_L<n>` (`<kV>` the conductor's rated voltage, not the
   energized one: 230 kV conductors on 115 kV yards give `230KV_…`) whose sections run FROM → TO; for every leg
   where a path already runs between the two stops (the yards' sites or the
-  junctions, either direction) the wizard reuses it by default and offers, with a *Route*
-  select per leg, to create a separate path instead; a path whose circuits
-  are energized at another voltage than the FROM yard (the line voltage,
-  also the voltage and name of the new line) is offered too, marked with the
-  voltage it carries, but never picked on its own: when only such paths
-  exist the leg has no default, the select asks to choose between sharing
-  the route and a new path, and *Create* stays disabled until the choice is
-  made (sharing adds a ⓘ note); sections follow the
+  junctions, either direction) the wizard shares it by default and offers, with a *Route*
+  select per leg, to create a separate path instead: a path is a route
+  between two places, so one carrying circuits of any voltage (0 V
+  included) is shared too, marked with the voltages it carries, one at the
+  line voltage preferred; each such leg says so in a ⓘ note ("… shares the
+  existing path …", "… a new path …, beside the existing …"); sections follow the
   direction of a reused path, the line keeps the chosen FROM / TO ends);
   the *Paths* tab lists the paths with deletion of the unused ones; legend).
   The toolbar
@@ -1114,11 +1129,12 @@ immediately.
   yard's. The select writes that connection at once (`setTakeOffVoltageOps`);
   a free take-off wired nowhere has no circuit yet and shows the yard
   voltage. Set, the take-off is drawn in that colour, a circuit attached is
-  energized at it, *Line to site* prefixes the name with it, and a
-  transformer winding wired to the take-off is expected at it instead of the
-  yard's. The line wizard sets it on the circuits of the take-offs it creates
-  as a secondary / auxiliary line (below the yard's voltage, at a site
-  without a yard at the energized voltage).
+  energized at it, and a transformer winding wired to the take-off is
+  expected at it instead of the yard's; its line name keeps the yard's
+  voltage (*Line to site* writes `<yard voltage>_<site>_L<n>`). The line
+  wizard and the circuit wizard set it on the circuits of the take-offs they
+  create as a secondary / auxiliary line (below the yard's voltage, at a
+  site without a yard at the energized voltage).
 * Equipment panel, transformers: instead of the terminals table the panel
   edits the **windings** with the same editor as the power-transformer
   template form (`WindingsEditor`: side, wiring, tap changer, voltage,

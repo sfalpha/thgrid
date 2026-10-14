@@ -582,9 +582,9 @@ function TakeOffPanel({meta, yard, record, layout, group, navigate}: PanelsProps
                 <TextField label="Line name" value={d.draft.lineName} onChange={v => d.set('lineName', v.toUpperCase())} hint="e.g. 230KV_CTI_L1; or pick the site the line goes to"/>
                 <SelectField label="Line to site" value={undefined} emptyLabel="pick a site…" options={ed.doc.substationGroups.filter(g => g.id !== group.id).sort((a, b) => a.groupName.localeCompare(b.groupName)).map(g => ({value: g.id, label: g.groupName}))}
                              onChange={v => {
-                                 const lineName = v && takeOffLineName(ed.doc, record.substationId, v, takeOffVoltage(ed.doc, record.id))
+                                 const lineName = v && takeOffLineName(ed.doc, record.substationId, v)
                                  if (lineName) d.set('lineName', lineName)
-                             }} hint="Sets the line name to <voltage>_<site code>_L<n>"/>
+                             }} hint="Sets the line name to <yard voltage>_<site code>_L<n>"/>
                 {(() => {
                     // the take-off's voltage lives on its circuit: where its line leaves, else its wiring in the yard
                     const circuit = takeOffCircuit(ed.doc, record.id)

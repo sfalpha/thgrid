@@ -20,6 +20,7 @@ import {
     NetworkCollectionName,
     NetworkDocument,
     NetworkNodeKind,
+    SubstationGroupRecord,
     networkCollectionNames,
     TransmissionCircuitRecord,
     TransmissionLineRecord,
@@ -28,6 +29,7 @@ import {applyOps, NetworkOp, renameRecordOps} from "./ops";
 import {pathEndOf, takeOffVoltage} from "./refs";
 import {TransmissionVoltage, voltageValueKv} from "../models/transmission.voltage";
 import {SubstationGroup} from "../models/substation.group";
+import {CoordinatesProps, haversineKm} from "../models/coordinates";
 import {GenerationUnit} from "../models/generation.unit";
 import {Substation} from "../models/substation";
 import {SubstationBay} from "../models/substation.bay";
@@ -51,8 +53,8 @@ export interface Naming {
 }
 
 /**
- * A take-off's line name by the rule `<voltage>_<site>_L<n>` with its voltage token following `voltage` (the take-off's,
- * from its circuit: `230KV_SA2_L1` at 115 kV is `115KV_SA2_L1`); any other line name is kept as typed.
+ * A take-off's line name by the rule `<voltage>_<site>_L<n>` with its voltage token following `voltage` (its yard's:
+ * `230KV_SA2_L1` in a 115 kV yard is `115KV_SA2_L1`, whatever its circuit runs at); any other line name is kept as typed.
  */
 export function ruleLineName(lineName: string, voltage?: TransmissionVoltage): string {
     const m = /^(\d+(?:\.\d+)?K?V(?:DC)?)_(.+_L\d+)$/i.exec(lineName)
@@ -135,11 +137,12 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
  * Line name of a new take-off from a yard toward another site:
- * `<voltage>_<target code>_L<n>` (`230KV_CTI_L1`), `n` following the highest
+ * `<yard voltage>_<target code>_L<n>` (`230KV_CTI_L1`), `n` following the highest
  * `L<n>` the yard already has toward that site (names without the voltage
- * part count too). Undefined for an unknown site.
+ * part count too). The voltage is the yard's, also for a take-off whose
+ * circuit runs at another (an auxiliary line). Undefined for an unknown site.
  */
-export function takeOffLineName(doc: NetworkDocument, substationId: string, targetGroupId: string, voltage?: TransmissionVoltage): string | undefined {
+export function takeOffLineName(doc: NetworkDocument, substationId: string, targetGroupId: string): string | undefined {
     const target = doc.substationGroups.find(g => g.id === targetGroupId)
     const yard = doc.substations.find(s => s.id === substationId)
     if (!target) return undefined
@@ -150,7 +153,7 @@ export function takeOffLineName(doc: NetworkDocument, substationId: string, targ
         const m = re.exec(t.lineName)
         if (m) max = Math.max(max, Number(m[1]))
     }
-    return SubstationTakeOff.defaultLineName({targetCode: target.groupName, voltage: voltage ?? yard?.voltage, sequence: max + 1})
+    return SubstationTakeOff.defaultLineName({targetCode: target.groupName, voltage: yard?.voltage, sequence: max + 1})
 }
 
 /** An anonymous wiring node inside a yard (SUBSTATION-scope connection): `SCC_<site>_<yard>_X<n>`. */
@@ -162,8 +165,30 @@ export function yardWiringNaming(doc: NetworkDocument, substationId: string): Na
 
 /* ---------- transmission side ---------- */
 
-export function junctionNaming(doc: NetworkDocument, name?: string): Naming {
-    const hints = {name: name?.trim() || undefined, sequence: doc.junctions.length + 1}
+/** The site closest to `coords` (by great-circle distance), if the network has any. */
+export function closestSite(doc: NetworkDocument, coords: CoordinatesProps): SubstationGroupRecord | undefined {
+    let best: SubstationGroupRecord | undefined, bestKm = Infinity
+    for (const g of doc.substationGroups) {
+        const km = haversineKm(coords, g.coords)
+        if (km < bestKm) [best, bestKm] = [g, km]
+    }
+    return best
+}
+
+/**
+ * A junction: the typed name, or `<site>_J<n>` after the site closest to `coords` (`J<n>` when the network has no site,
+ * or no position is given), `n` the first number no junction of that name (or its id `TJT_<name>`) has yet.
+ */
+export function junctionNaming(doc: NetworkDocument, name?: string, coords?: CoordinatesProps): Naming {
+    const typed = name?.trim() || undefined
+    const site = !typed && coords ? closestSite(doc, coords)?.groupName : undefined
+    const taken = (hints: { site?: string; sequence: number }) => {
+        const n = TransmissionJunction.defaultName(hints)
+        return doc.junctions.some(j => j.name === n || j.id === TransmissionJunction.defaultId({name: n}))
+    }
+    let sequence = 1
+    while (!typed && taken({site, sequence})) sequence++
+    const hints = {name: typed, site, sequence}
     return {id: TransmissionJunction.defaultId(hints), name: TransmissionJunction.defaultName(hints)}
 }
 
@@ -420,10 +445,10 @@ export function defaultNamingFor(doc: NetworkDocument, collection: NetworkCollec
             return e && equipmentNaming(doc, e.substationId, e.code, e.equipmentType)
         }
         case 'takeOffs': {
-            // a line name by the rule takes the take-off's voltage (its circuit's, else the yard's); the name and id follow it
+            // a line name by the rule takes its yard's voltage; the name and id follow it
             const t = doc.takeOffs.find(r => r.id === id)
             if (!t) return undefined
-            const lineName = ruleLineName(t.lineName, takeOffVoltage(doc, t.id))
+            const lineName = ruleLineName(t.lineName, doc.substations.find(y => y.id === t.substationId)?.voltage)
             return {...takeOffNaming(doc, t.substationId, lineName), ...(lineName !== t.lineName ? {lineName} : {})}
         }
         case 'paths': {

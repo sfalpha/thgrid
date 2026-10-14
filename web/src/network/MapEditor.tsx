@@ -591,7 +591,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             }
             case 'addJunction': {
                 const draft = createRef.current
-                const naming = junctionNaming(e.doc, draft.name)
+                const naming = junctionNaming(e.doc, draft.name, coords)
                 const record: TransmissionJunctionRecord = {id: pickId(e.doc, draft.id, naming.id), name: naming.name, coords}
                 if (e.apply([{type: 'upsert', collection: 'junctions', record}])) e.select({collection: 'junctions', id: record.id})
                 setCreateDraft({id: '', code: '', name: ''})

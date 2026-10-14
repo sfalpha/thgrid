@@ -11,8 +11,9 @@
  *   circuit run, and lines keep it as consecutive sections; or
  * - both enter a yard of the site through a new take-off each ("loop in"):
  *   only a yard at the voltage every chosen circuit is energized at can be
- *   used, and each line through them is split there into two lines (a line
- *   runs yard to yard).
+ *   used (a de-energized circuit: a yard within its rating, warned; it stays
+ *   de-energized, its take-offs at the yard's voltage), and each line through
+ *   them is split there into two lines (a line runs yard to yard).
  * Paths: either part can run on an existing path between the same places
  * (`routeViaPathChoices`, `RouteViaOptions`; one running the other way makes
  * the circuits on it follow its direction, FROM and TO swapped). Parts not
@@ -23,7 +24,7 @@
  */
 import {genericConductor} from '@shared/models/transmission.conductor'
 import {SubstationTakeOff} from '@shared/models/substation.take.off'
-import {TransmissionVoltage} from '@shared/models/transmission.voltage'
+import {TransmissionVoltage, withinRating} from '@shared/models/transmission.voltage'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 import {
     CIRCUIT_END_FROM,
@@ -58,19 +59,37 @@ export type RouteVia =
 /** Voltage a circuit runs at: energized, else rated. */
 export const runVoltage = (c: TransmissionCircuitRecord): TransmissionVoltage | undefined => c.energizedVoltage ?? c.voltage
 
-/** Voltage of a junction node a circuit is spliced in: the one it runs at (its rated one when de-energized), so attaching it there keeps it energized as it was. */
-export const nodeVoltage = (c: TransmissionCircuitRecord): TransmissionVoltage | undefined => c.energizedVoltage && c.energizedVoltage !== TransmissionVoltage.DE_ENERGIZED ? c.energizedVoltage : c.voltage
+/** Voltage of a junction node a circuit is spliced in: the one it is energized at (0 V when de-energized; its rated one when unknown), as the line wizard and Form a line set it. */
+export const nodeVoltage = (c: TransmissionCircuitRecord): TransmissionVoltage | undefined => c.energizedVoltage ?? c.voltage
 
-/** The yards of a site and whether the chosen circuits may enter them: the yard must be at the voltage every one of them runs at. */
+const deEnergized = (c: TransmissionCircuitRecord) => c.energizedVoltage === TransmissionVoltage.DE_ENERGIZED
+
+/**
+ * The yards of a site and whether the chosen circuits may enter them. The energized ones fix the voltage: the yard must
+ * be at the voltage every one of them runs at. A de-energized circuit (0 V) may enter a yard within its rating (the
+ * same current type, not above it): it stays de-energized there (`deEnergizedEntryWarning`).
+ */
 export function yardChoices(doc: NetworkDocument, groupId: string, circuits: TransmissionCircuitRecord[]): { yard: SubstationRecord; reason?: string }[] {
-    const voltages = [...new Set(circuits.map(runVoltage))]
-    return doc.substations.filter(y => y.groupId === groupId).sort((a, b) => a.yardName.localeCompare(b.yardName)).map(yard => ({
-        yard,
-        reason: circuits.length === 0 ? 'check circuits first'
-            : voltages.length > 1 ? `the checked circuits run at different voltages (${voltages.map(v => v ?? 'unknown').join(', ')})`
-                : voltages[0] === undefined ? 'the checked circuits have no voltage'
-                    : voltages[0] !== yard.voltage ? `not at ${voltages[0]} (the voltage the circuits are energized at)` : undefined,
-    }))
+    const live = circuits.filter(c => !deEnergized(c))
+    const voltages = [...new Set(live.map(runVoltage))]
+    return doc.substations.filter(y => y.groupId === groupId).sort((a, b) => a.yardName.localeCompare(b.yardName)).map(yard => {
+        const beyond = circuits.find(c => deEnergized(c) && !withinRating(c.voltage, yard.voltage))
+        return {
+            yard,
+            reason: circuits.length === 0 ? 'check circuits first'
+                : voltages.length > 1 ? `the checked circuits run at different voltages (${voltages.map(v => v ?? 'unknown').join(', ')})`
+                    : live.length && voltages[0] === undefined ? 'the checked circuits have no voltage'
+                        : live.length && voltages[0] !== yard.voltage ? `not at ${voltages[0]} (the voltage the circuits are energized at)`
+                            : beyond ? `beyond the rating of the de-energized ${beyond.name} (${beyond.voltage})` : undefined,
+        }
+    })
+}
+
+/** The warning for de-energized circuits entering a yard: allowed, they stay de-energized; their take-offs are at the yard's voltage. */
+export function deEnergizedEntryWarning(circuits: TransmissionCircuitRecord[], yardLabel: string, yardVoltage?: TransmissionVoltage): string | undefined {
+    const off = circuits.filter(deEnergized)
+    if (!off.length) return undefined
+    return `${off.map(c => c.name).join(', ')} ${off.length === 1 ? 'is' : 'are'} de-energized (0 V): entering ${yardLabel} at ${yardVoltage ?? '?'}, ${off.length === 1 ? 'it stays' : 'they stay'} de-energized; the take-offs are at the yard's voltage`
 }
 
 export interface RouteViaPlan {
@@ -165,12 +184,13 @@ export function routePlaceLabel(place: RoutePlace, junction = place.junction): s
 }
 
 /**
- * A new take-off in the yard, named toward `target` (a site, yard or junction; `<voltage>_<site>_L<n>`, numbered per
- * target: a junction goes by its name, nothing by OPEN).
+ * A new take-off in the yard, named toward `target` (a site, yard or junction; `<yard voltage>_<site>_L<n>`, numbered
+ * per target: a junction goes by its name, nothing by OPEN).
  */
-export function newTakeOffToward(doc: NetworkDocument, yardId: string, target: ConnectionJunctionRef | undefined, voltage: TransmissionVoltage | undefined): SubstationTakeOffRecord {
+export function newTakeOffToward(doc: NetworkDocument, yardId: string, target: ConnectionJunctionRef | undefined): SubstationTakeOffRecord {
+    const voltage = doc.substations.find(y => y.id === yardId)?.voltage
     const targetSite = target && pathEndOf(doc, target)?.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? pathEndOf(doc, target)!.id : undefined
-    let lineName = targetSite ? takeOffLineName(doc, yardId, targetSite, voltage) : undefined
+    let lineName = targetSite ? takeOffLineName(doc, yardId, targetSite) : undefined
     if (!lineName) {
         const code = target ? (doc.junctions.find(j => j.id === target.id)?.name ?? target.id) : 'OPEN'
         let n = 1
@@ -262,8 +282,8 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
     const reversedB = !!reuseB && samePlace(doc, reuseB.to, viaRef)
 
     /** A new take-off in the yard, named toward `target`. */
-    const newTakeOff = (target: ConnectionJunctionRef | undefined, voltage: TransmissionVoltage | undefined): SubstationTakeOffRecord => {
-        const rec = newTakeOffToward(probe, yard!.id, target, voltage)
+    const newTakeOff = (target: ConnectionJunctionRef | undefined): SubstationTakeOffRecord => {
+        const rec = newTakeOffToward(probe, yard!.id, target)
         push({type: 'upsert', collection: 'takeOffs', record: rec})
         plan.takeOffs.push(rec)
         return rec
@@ -274,7 +294,6 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
     const touchedLines = new Map<string, TransmissionLineRecord>()
     for (const c of chosen) {
         const oldTo = circuitEndConnection(doc, c.id, CIRCUIT_END_TO)
-        const voltage = runVoltage(c)
         /** Whether the line's sections after this circuit are the ones that led on from its old TO end. */
         const leadsOnAfter = (line: TransmissionLineRecord) => {
             const i = line.circuitIds.indexOf(c.id)
@@ -311,9 +330,9 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
             if (node) push(...attachCircuitEndToJunctionOps(probe, continuation.id, CIRCUIT_END_FROM, junction.id, nodeVoltage(c), {connectionId: node.id}))
         } else {
             // looped into the yard: a take-off toward each far end (created first: the attach must see it in `probe`)
-            const back = newTakeOff(toward(path.from, false), voltage)
+            const back = newTakeOff(toward(path.from, false))
             push(...attachCircuitEndToTakeOffOps(probe, c.id, CIRCUIT_END_TO, back.id))
-            const onward = newTakeOff(toward(path.to, true), voltage)
+            const onward = newTakeOff(toward(path.to, true))
             push(...attachCircuitEndToTakeOffOps(probe, continuation.id, CIRCUIT_END_FROM, onward.id))
         }
 
@@ -369,6 +388,10 @@ export function buildRouteViaPlan(doc: NetworkDocument, pathId: string, circuitI
             push({type: 'upsert', collection: 'connections', record: {...conn, nodes: conn.nodes.map(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === circuitId
                     ? {...n, terminal: n.terminal === CIRCUIT_END_FROM ? CIRCUIT_END_TO : CIRCUIT_END_FROM} : n)}})
         }
+    }
+    if (yard) {
+        const w = deEnergizedEntryWarning(chosen, `yard ${place.site?.groupName ?? ''} ${yard.yardName}`, yard.voltage)
+        if (w) plan.warnings.push(w)
     }
     if (reversedA) {
         for (const x of plan.circuits) reverse(x.original.id)

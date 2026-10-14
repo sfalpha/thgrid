@@ -1,6 +1,6 @@
 import {TransmissionUnit, TransmissionUnitNamingHints, TransmissionUnitProps} from "./transmission.unit";
 import {TransmissionConnection} from "./transmission.connection";
-import {joinId} from "./naming";
+import {joinId, joinName} from "./naming";
 
 export type TransmissionJunctionConnections = {
     [key: string]: TransmissionConnection
@@ -11,11 +11,13 @@ export interface TransmissionJunctionProps extends TransmissionUnitProps {
 }
 
 export interface TransmissionJunctionNamingHints extends TransmissionUnitNamingHints {
-    /** 1-based number of the junction in the network, used for the default name `JT<n>`. */
+    /** Code of the site closest to the junction, the prefix of the default name `<site>_J<n>`. */
+    site?: string
+    /** 1-based number of the junction (among those named after the same site), used for the default name. */
     sequence?: number
 }
 
-/** A tap / splice point on a line. Default name `JT<n>`, default id `TJT_<name>`. */
+/** A tap / splice point on a line. Default name `<closest site>_J<n>` (`J<n>` without a site), default id `TJT_<name>`. */
 export class TransmissionJunction extends TransmissionUnit {
     static readonly idPrefix = 'TJT'
 
@@ -24,7 +26,7 @@ export class TransmissionJunction extends TransmissionUnit {
     }
 
     static defaultName(hints: TransmissionJunctionNamingHints = {}): string {
-        return hints.name || `JT${hints.sequence ?? 1}`
+        return hints.name || joinName([hints.site, `J${hints.sequence ?? 1}`])
     }
 
     connections: TransmissionJunctionConnections

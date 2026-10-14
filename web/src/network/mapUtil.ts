@@ -1,6 +1,7 @@
 /** Map helpers shared by the Leaflet editor and its side panels (no Leaflet dependency). */
 import {atPathEnd, junctionRef} from '@shared/network/refs'
 import type {CoordinatesProps} from '@shared/models/coordinates'
+import {haversineKm} from '@shared/models/coordinates'
 import {voltageValueKv} from '@shared/models/transmission.voltage'
 import {CircuitEnd, ConnectionJunctionKind, ConnectionJunctionRef, ConnectionScope, GenerationUnitRecord, NetworkDocument, NetworkNodeKind} from '@shared/network/records'
 
@@ -314,13 +315,10 @@ export const voltageLegend: { voltage: string; label: string }[] = [
     {voltage: '0V', label: '0 V de-energized'},
 ]
 
-export function haversineKm(a: CoordinatesProps, b: CoordinatesProps): number {
-    const R = 6371
-    const dLat = (b.latitude - a.latitude) * Math.PI / 180
-    const dLon = (b.longitude - a.longitude) * Math.PI / 180
-    const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * Math.PI / 180) * Math.cos(b.latitude * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-    return 2 * R * Math.asin(Math.sqrt(s))
-}
+export {haversineKm}
+
+/** A line junction in a list of places: its name first, so typing the name finds it among the sites (`JX Junction`). */
+export const junctionOptionLabel = (j: { id: string; name?: string }) => `${j.name ?? j.id} Junction`
 
 /** The generating units of a site, by name (numbers compared as numbers: Block 2 before Block 10). */
 export function generationUnitsOf(doc: NetworkDocument, groupId: string): GenerationUnitRecord[] {
