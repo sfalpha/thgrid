@@ -283,6 +283,28 @@ A take-off's line name carries its yard's voltage (`takeOffLineName`,
 | TN-2 | the line wizard, energized 115 kV at SE (230 kV only) | the auxiliary take-off `230KV_SC_L1`, its circuit at 115 kV; Regenerate leaves it |
 | TN-3 | the circuit wizard, the same | `230KV_SC_L1`, its circuit at 115 kV |
 
+Map drafts (`web/test/drafts.test.ts`): what "+ Path", "+ Circuit" and
+"+ Line" have picked, and a right-click taking a picked place out again.
+
+| Id | Case | Result |
+|---|---|---|
+| DR-1 | the places picked (`draftPickedPlaces`) | the ends, then the stops in between; a line end at a yard counts as its site |
+| DR-2 | taking a place out of a path or circuit draft (`dropDraftPlace`) | that end only; a place not picked leaves the draft as it is |
+| DR-3 | taking a place out of a line draft | an end by its site (also at a yard or a site junction), or a stop in between |
+| DR-4 | New line: an end set at another voltage than the other end's yard (`lineDraftSetEnd`) | the other end moves to its site's yard at that voltage: MA 500 kV with MC 230 kV → MA 230 kV; MA changed to 115 kV with SH → SH 115 kV, and the other way round |
+| DR-5 | the same where the other site has no yard at that voltage, or the other end is a site junction or a line junction | it stays as it is |
+| DR-6 | New line on the map: MA clicked, then MC (230 kV only) | MA's highest yard (500 kV) first, then MA follows to 230 kV |
+
+Site size on the map (`web/test/siteSize.test.ts`): points per circuit ending
+at the site by the voltage it runs at, 4 at 500 kV or more, 2 at 230 kV or
+more, 1 below; small from 0, medium from 8, large from 16, x-large from 32.
+
+| Id | Case | Result |
+|---|---|---|
+| SZ-1 | a circuit's points (`circuitSizePoints`) | 500 kV 4, 230 kV 2, 115 kV 1; 230 kV-rated at 115 kV 1 (by the voltage it runs at); de-energized by its rating, 2; no voltage 1 |
+| SZ-2 | the busy area (`siteSize`: circuits / points) | MA medium 7/14; ME medium 4/10; MS small 3/5 (the 230 kV line spliced through its junction left out); MD small 5/5; QA medium 5/10; SA small 0/0 |
+| SZ-3 | each side of each step, circuits added at SA | 7 points small, 8 medium; 15 medium, 16 large; 31 large, 32 x-large |
+
 ## 5. Other map operations (`web/test/operations.test.ts`) – automated
 
 Create circuit, Create path, Form a line, Route via and Route to / from on

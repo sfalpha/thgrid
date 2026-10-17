@@ -2,8 +2,8 @@
 import {atPathEnd, junctionRef} from '@shared/network/refs'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 import {haversineKm} from '@shared/models/coordinates'
-import {voltageValueKv} from '@shared/models/transmission.voltage'
-import {CircuitEnd, ConnectionJunctionKind, ConnectionJunctionRef, ConnectionScope, GenerationUnitRecord, NetworkDocument, NetworkNodeKind} from '@shared/network/records'
+import {TransmissionVoltage, voltageValueKv} from '@shared/models/transmission.voltage'
+import {CircuitEnd, ConnectionJunctionKind, ConnectionJunctionRef, ConnectionScope, GenerationUnitRecord, NetworkDocument, NetworkNodeKind, TransmissionCircuitRecord} from '@shared/network/records'
 
 export type Mode = 'select' | 'addSite' | 'addJunction' | 'addPath' | 'addCircuit' | 'addLine' | 'editWaypoints' | 'splitPath'
 
@@ -70,6 +70,20 @@ function lineEndYard(doc: NetworkDocument, groupId: string, d: LineDraft): strin
         ?? [...yards].sort((a, b) => voltageKv(b.voltage) - voltageKv(a.voltage))[0])?.id
 }
 
+/**
+ * Sets the `side` end of a line draft to `value`. When both ends are then yards at different voltages, the other end
+ * moves to its site's yard at the voltage just picked, if the site has one: the yard picked last leads (a site junction
+ * or a line junction end is left as it is).
+ */
+export function lineDraftSetEnd(doc: NetworkDocument, d: LineDraft, side: 'from' | 'to', value: string): LineDraft {
+    const next = {...d, [side]: value}
+    const otherSide = side === 'from' ? 'to' : 'from'
+    const picked = lineEndYardOf(doc, value), other = lineEndYardOf(doc, next[otherSide])
+    if (!picked || !other || other.voltage === picked.voltage) return next
+    const match = doc.substations.find(y => y.groupId === other.groupId && y.voltage === picked.voltage)
+    return match ? {...next, [otherSide]: `Y:${match.id}`} : next
+}
+
 /** The sites and junctions a line draft uses, for highlighting them on the map. */
 export function lineDraftPlaces(doc: NetworkDocument, d: LineDraft): string[] {
     return [lineEndPlace(doc, d.from), lineEndPlace(doc, d.to), ...d.vias.filter(Boolean).map(v => v.slice(2))].filter((x): x is string => !!x)
@@ -85,7 +99,8 @@ export function lineDraftSiteClick(doc: NetworkDocument, d: LineDraft, groupId: 
     if (!d.from || !d.to) {
         const yardId = lineEndYard(doc, groupId, d)
         const end = yardId ? `Y:${yardId}` : `G:${groupId}`
-        return {draft: !d.from ? {...d, from: end} : {...d, to: end}}
+        // the second end leads: when its site has no yard at the first end's voltage, the first end follows it where it can
+        return {draft: lineDraftSetEnd(doc, d, !d.from ? 'from' : 'to', end)}
     }
     if (d.vias.filter(Boolean).length >= LINE_MAX_VIAS) return {error: `At most ${LINE_MAX_VIAS} stops in between.`}
     return {draft: {...d, vias: [...d.vias.filter(Boolean), `G:${groupId}`]}}
@@ -136,6 +151,28 @@ export function pickDraftEnd<D extends { from: string; to: string }>(d: D, place
 /** A site or junction right-clicked in "+ Path" or "+ Circuit" mode: taken out again when it is an end. */
 export function dropDraftEnd<D extends { from: string; to: string }>(d: D, place: string): D {
     return d.from === place ? {...d, from: ''} : d.to === place ? {...d, to: ''} : d
+}
+
+/**
+ * The places picked in a "+ Path", "+ Circuit" or "+ Line" draft, as `G:<site id>` or `J:<junction id>` (a line end at a
+ * yard counts as its site): the FROM and TO ends, then the stops in between.
+ */
+export function draftPickedPlaces(doc: NetworkDocument, d: { from: string; to: string; vias?: string[] }): string[] {
+    const asPlace = (v: string) => {
+        if (v.startsWith('Y:')) {
+            const yard = doc.substations.find(s => s.id === v.slice(2))
+            return yard ? `G:${yard.groupId}` : undefined
+        }
+        return v.startsWith('G:') || v.startsWith('J:') ? v : undefined
+    }
+    return [d.from, d.to, ...(d.vias ?? [])].map(asPlace).filter((x): x is string => !!x)
+}
+
+/** Takes a picked place (`G:` / `J:`, see `draftPickedPlaces`) out of a draft: an end, or a line's stop in between. */
+export function dropDraftPlace<D extends { from: string; to: string; vias?: string[] }>(doc: NetworkDocument, d: D, place: string): D {
+    if (!d.vias) return dropDraftEnd(d, place)
+    const id = place.slice(2)
+    return lineDraftRemove(doc, d as unknown as LineDraft, place.startsWith('G:') ? {groupId: id} : {junctionId: id}) as unknown as D
 }
 
 /** Where a circuit end is located on the map, following its TRANSMISSION connection. */
@@ -213,16 +250,37 @@ export function mapDetailScale(zoom: number): number {
 }
 
 /**
- * Classifies a site by its take-offs and bays (over all its yards):
- * more than 6 / 12 / 24 take-offs or more than 4 / 8 / 16 bays make it
- * medium / large / x-large; everything else is small.
+ * Points a circuit brings to the size of a site it ends at, by the voltage it runs at (energized, else rated; a
+ * de-energized one by its rating): 4 at 500 kV or more, 2 at 230 kV or more, 1 below (or unknown).
  */
-export function siteSize(doc: NetworkDocument, groupId: string): { size: SiteSize; takeOffs: number; bays: number } {
-    const yardIds = new Set(doc.substations.filter(s => s.groupId === groupId).map(s => s.id))
-    const takeOffs = doc.takeOffs.filter(t => yardIds.has(t.substationId)).length
-    const bays = doc.bays.filter(b => yardIds.has(b.substationId)).length
-    const size: SiteSize = takeOffs > 24 || bays > 16 ? 'xlarge' : takeOffs > 12 || bays > 8 ? 'large' : takeOffs > 6 || bays > 4 ? 'medium' : 'small'
-    return {size, takeOffs, bays}
+export function circuitSizePoints(c: TransmissionCircuitRecord): number {
+    const v = c.energizedVoltage && c.energizedVoltage !== TransmissionVoltage.DE_ENERGIZED ? c.energizedVoltage : c.voltage
+    const kv = voltageKv(v)
+    return kv >= 500 ? 4 : kv >= 230 ? 2 : 1
+}
+
+/** Points from which a site is medium, large, x-large (`siteSize`); below the first it is small. */
+export const SITE_SIZE_POINTS = {medium: 8, large: 16, xlarge: 32} as const
+
+/**
+ * Classifies a site by the circuits that end there, weighted by voltage (`circuitSizePoints`): the circuits leaving its
+ * yards through their take-offs, and those ending open at its site junction (a line only spliced through the site
+ * junction, a node joining two or more sections, does not enter the station and is left out); each circuit once.
+ * 8 / 16 / 32 points or more make it medium / large / x-large (`SITE_SIZE_POINTS`); less is small.
+ */
+export function siteSize(doc: NetworkDocument, groupId: string): { size: SiteSize; circuits: number; points: number } {
+    const yards = new Set(doc.substations.filter(s => s.groupId === groupId).map(s => s.id))
+    const junctions = new Set(doc.junctions.filter(j => j.groupId === groupId).map(j => j.id))
+    const ids = new Set<string>()
+    for (const conn of doc.connections) {
+        if (conn.scope !== ConnectionScope.TRANSMISSION) continue
+        const ends = conn.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT)
+        if (yards.has(conn.junction.id) || (junctions.has(conn.junction.id) && ends.length === 1)) for (const n of ends) ids.add(n.id)
+    }
+    const circuits = doc.circuits.filter(c => ids.has(c.id))
+    const points = circuits.reduce((sum, c) => sum + circuitSizePoints(c), 0)
+    const size: SiteSize = points >= SITE_SIZE_POINTS.xlarge ? 'xlarge' : points >= SITE_SIZE_POINTS.large ? 'large' : points >= SITE_SIZE_POINTS.medium ? 'medium' : 'small'
+    return {size, circuits: circuits.length, points}
 }
 
 /**

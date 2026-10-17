@@ -78,7 +78,7 @@ import {
 } from './linkOps'
 import {describeNode} from './SubstationPanels'
 import {nextJunctionConnectionName} from '@shared/network/migrate'
-import {capacityText, CircuitDraft, CreateDraft, endLocation, generationUnitsOf, haversineKm, junctionOptionLabel, LINE_MAX_VIAS, LineDraft, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, PLANNED_COLOR, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
+import {capacityText, CircuitDraft, CreateDraft, endLocation, generationUnitsOf, haversineKm, junctionOptionLabel, LINE_MAX_VIAS, LineDraft, lineDraftSetEnd, lineEndPlace, lineEndYardOf, locationOfRef, Mode, PathDraft, PLANNED_COLOR, voltageColor, voltageKv, voltageLegend, WaypointEdit} from './mapUtil'
 import {JunctionSymbol, VoltageSymbol} from './symbols'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 
@@ -122,13 +122,14 @@ function useDraft<T extends { id: string }>(record: T) {
     return {draft, set, setDraft, dirty, reset: () => setDraft(record)}
 }
 
-function Header({title, badge, onDelete, rename}: { title: string; badge?: string; onDelete?: () => void; rename?: { collection: NetworkCollectionName; id: string; auto?: string } }) {
+function Header({title, badge, onDelete, onCancel, rename}: { title: string; badge?: string; onDelete?: () => void; onCancel?: () => void; rename?: { collection: NetworkCollectionName; id: string; auto?: string } }) {
     return (
         <div className="panel-header">
             <h3 style={{margin: 0}}>{title}</h3>
             {rename ? <IdEditor collection={rename.collection} id={rename.id} auto={rename.auto}/> : badge && <span className="badge">{badge}</span>}
             <span className="spacer"/>
             {onDelete && <button type="button" className="small danger" onClick={onDelete}>Delete</button>}
+            {onCancel && <button type="button" className="small" onClick={onCancel}>Cancel</button>}
         </div>
     )
 }
@@ -169,7 +170,7 @@ export function MapPanels(props: MapPanelsProps) {
     if (mode === 'addCircuit') return <NewCircuitWizard {...props}/>
     if (mode === 'addLine') return (
         <div className="panel">
-            <Header title="New line"/>
+            <Header title="New line" onCancel={() => props.setMode('select')}/>
             <NewLineWizard meta={props.meta} locate={props.locate} draft={props.lineDraft} setDraft={props.setLineDraft} onDone={() => props.setMode('select')}/>
         </div>
     )
@@ -263,11 +264,12 @@ function CreatePanel({kind, draft, setDraft, cancel, splitNow}: { kind: 'addSite
                                        hint={site ? 'Display name; the code when left empty' : ed.doc.substationGroups.length ? 'Left empty: named after the site closest to where you click' : undefined}/>}
                 {!chosen && <NewIdField value={draft.id} onChange={v => setDraft({...draft, id: v})} auto={auto}/>}
             </div>
-            {chosen && (
-                <div className="toolbar" style={{marginTop: 8}}>
-                    <button type="button" className="primary small" disabled={!splitNow || !splitPath} onClick={splitNow}>Split at {chosen.name ?? chosen.id}</button>
-                </div>
-            )}
+            <div className="toolbar" style={{marginTop: 8}}>
+                {chosen
+                    ? <button type="button" className="primary small" disabled={!splitNow || !splitPath} onClick={splitNow}>Split at {chosen.name ?? chosen.id}</button>
+                    : <span className="small muted">{site ? 'Click on the map where the site is' : split ? 'Click on the path where the new junction goes' : 'Click on the map where the junction is'}</span>}
+                <button type="button" className="small" onClick={cancel}>Cancel</button>
+            </div>
         </div>
     )
 }
@@ -333,6 +335,7 @@ function NewPathPanel({draft, setDraft, setMode, locate}: { draft: PathDraft; se
             )}
             <div className="toolbar" style={{marginTop: 8}}>
                 <button type="button" className="primary small" disabled={!from || !to || same || !idOk} onClick={create}>Create path</button>
+                <button type="button" className="small" onClick={() => setMode('select')}>Cancel</button>
             </div>
         </div>
     )
@@ -2462,8 +2465,9 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
     const {templates} = useTemplates(TemplateKind.TRANSMISSION_CIRCUIT)
     // The ends, the stops and the voltage live in the map editor (`LineDraft`), so clicking sites and junctions on the map sets them too.
     const {from, to, vias, voltage} = draft
-    const setFrom = (v: string) => setDraft(d => ({...d, from: v}))
-    const setTo = (v: string) => setDraft(d => ({...d, to: v}))
+    // the yard picked last leads: the other end's yard follows to the same voltage where its site has one
+    const setFrom = (v: string) => setDraft(d => lineDraftSetEnd(doc, d, 'from', v))
+    const setTo = (v: string) => setDraft(d => lineDraftSetEnd(doc, d, 'to', v))
     const setVias = (f: (prev: string[]) => string[]) => setDraft(d => ({...d, vias: f(d.vias)}))   // stops passed in between, in order ('' = row not chosen yet)
     const setVoltage = (v: string | undefined) => setDraft(d => ({...d, voltage: v}))
     const [templateId, setTemplateId] = useState<string | undefined>()
@@ -3144,6 +3148,7 @@ function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsPro
             )}
             <div className="toolbar" style={{marginTop: 10}}>
                 <button type="button" className="primary small" disabled={plan.errors.length > 0 || !plan.circuit} onClick={create}>Create circuit</button>
+                <button type="button" className="small" onClick={() => setMode('select')}>Cancel</button>
                 {creates.length > 0 && <span className="small muted">also creates {creates.join(', ')}</span>}
             </div>
         </div>

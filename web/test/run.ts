@@ -6,6 +6,8 @@ import './lineCreation.test'
 import './busyPlaces.test'
 import './naming.test'
 import './operations.test'
+import './drafts.test'
+import './siteSize.test'
 
 const failed = runTests(process.argv[2])
 process.exitCode = failed ? 1 : 0

@@ -370,9 +370,13 @@ immediately.
   and the number of generation units with their installed capacity
   (`capacityText`: `1,400 MW + 300 MW planned`), and the *Sites* list shows
   the G and type badges at the same size and the same capacity in its detail. Sites are sized
-  by what is inside them (`siteSize` in `mapUtil.ts`: more than 6 / 12 / 24
-  take-offs or more than 4 / 8 / 16 bays make a site medium / large /
-  x-large, else small) and the marker grows with the class: 14 / 18 / 24 / 30 px
+  by the circuits ending there, weighted by voltage (`siteSize` in `mapUtil.ts`: the circuits leaving its
+  yards through their take-offs and those ending open at its site junction, a line only spliced through
+  the site junction left out, each circuit once; a circuit scores by the voltage it runs at, energized
+  else rated, a de-energized one by its rating, `circuitSizePoints`: 4 points at 500 kV or more, 2 at
+  230 kV or more, 1 below; 8 / 16 / 32 points or more make a site medium / large / x-large, else small,
+  `SITE_SIZE_POINTS`; counted on the whole network, whatever the map toggles hide, and shown in the
+  site's hover summary) and the marker grows with the class: 14 / 18 / 24 / 30 px
   at full detail (`SITE_MARKER_PX`, zoom 11 and in), scaled down when zoomed
   out (`mapDetailScale` in `mapUtil.ts`: 35 % at the country view, zoom 6,
   growing linearly to 100 % at zoom 11; at least 6 px, a thinner rim below
@@ -456,13 +460,15 @@ immediately.
   *Junction areas* (off: only the connectors, which still select the
   junction), *Paths without circuits* (the selected or edited one is always
   drawn), *Planned* (off: planned sites, circuits and connections are left
-  out, and parallel lanes close up), *Below 230 kV* (off: circuits running
-  below 230 kV, by energized else rated voltage, and sites whose yards are
-  all below 230 kV are left out, as are paths without circuits ending at such
-  a site; a site with a 230 kV or higher yard stays, and so do circuits
-  without a voltage) and *Base map* (the OpenStreetMap tiles). A line
-  junction whose circuits are all left out (by *Planned* or *Below 230 kV*)
-  is not drawn either, unless it is selected.
+  out, and parallel lanes close up), *Below 500 kV* and *Below 230 kV* (off:
+  circuits running below that voltage, by energized else rated voltage, and
+  sites without a yard at that voltage or higher (sites without yards too)
+  are left out, as are paths without circuits ending at such a site; a site
+  where a circuit still drawn ends (at a yard or its site junction, e.g. a
+  500 kV line spliced through it) stays, and so do circuits without a voltage; *Below 500 kV* off shows the 500 kV
+  grid alone, and *Below 230 kV* is disabled meanwhile, keeping its setting for when *Below 500 kV* is on again) and *Base map* (the
+  OpenStreetMap tiles). A line junction whose circuits are all left out (by
+  *Planned* or a voltage toggle) is not drawn either, unless it is selected.
   Junctions carry no label by
   default, so the map only names substations; hovering a junction opens a
   popup with its name, coordinates and each connection with the circuit
@@ -537,13 +543,20 @@ immediately.
   starts, then where it ends, or pick them in its *From* / *To* selects;
   a right-click on a picked site or junction takes it out again (the ends
   are a `PathDraft` shared by the map and the panel, highlighted on the
-  map). *Swap from / to* exchanges them; *Name* and *Id* default to the
+  map). In "+ Path", "+ Circuit" and "+ Line" alike, the right-click may land
+  on the marker, within 12 px of it (small markers zoomed out), or on its
+  label; on a site it also takes out what is drawn as part of that site (an
+  extension, a junction next to it, zoomed out) when that is what was picked
+  (`draftPickedPlaces`, `dropDraftPlace`); elsewhere on the map it does
+  nothing. *Swap from / to* exchanges them; *Name* and *Id* default to the
   rule ones (`pathNaming`); the straight distance is shown, and paths that
   already run between the two places are listed with ⚠ (a new one is a
   duplicate unless it gets its own waypoints). *Create path* adds the
   empty path and selects it for *Edit waypoints*; `Esc` or *Cancel*
   returns to Select), **+ Line** (opens the
-  "New line" wizard in the side panel; `Esc` or *Cancel* returns to Select), **+ Circuit**
+  "New line" wizard in the side panel; `Esc` or *Cancel* returns to Select; every create panel, New site, New
+  junction, Split, New path, New line and New circuit, has *Cancel* both at its top right and beside its
+  action, the create button or the hint to click on the map), **+ Circuit**
   (opens the "New circuit" wizard, `NewCircuitWizard`, built on
   `circuitWizard.ts` / `buildNewCircuitPlan`):
   1. the ends: click the site or junction where the circuit starts, then
@@ -998,7 +1011,7 @@ immediately.
   site panel lists the lines ending at its yards), overview (the tab strip
   described under *Find* above, then network name and description, counts,
   loose circuits; the toolbar's *+ Line* opens the **New line** wizard in
-  the side panel (`lineWizard.ts`: pick the FROM and TO ends, each a site, then one of its yards (the circuits leave it through take-offs; the yard at the other end's voltage, else the highest, is preselected) or its site junction (created when missing), or a line junction (`LineEndField`; end keys `Y:` / `G:` / `J:`, `NewLineSpec.from` / `to`); at a junction end each circuit gets a node of its own and the line ends at that junction, open until it is extended or tied in (lines toward the same open end take the next free `L<n>`), a take-off facing a line junction is named after it, and the voltage must be picked when neither end is a yard; the wizard **refuses** whatever would not be right and gives blue ⓘ **notes** (`NewLinePlan.notes`) for what is unusual but sound, never warnings: the line runs at the voltage its yards bring (a yard below the rated voltage at its own, a note: e.g. 230 kV conductors on 115 kV yards run at 115 kV; a yard above it through take-offs at the rated voltage, a secondary / auxiliary line, a note; ends that would bring two voltages are refused), with both ends at junctions at 0V (de-energized), and the line, its sections' energized voltage and the junction nodes it creates take it; an optional *Energized voltage* (e.g. 0V de-energized) is used instead; an energized voltage above the conductor's rating or of another current type (given, or brought by the yards) is refused, as is one given with both ends at junctions (nothing feeds it); each yard end then takes its take-offs into the yard picked when it is at that voltage; a site with a yard at it where another was picked is refused (pick that one); below the picked yard's voltage, at a site without a yard at it, the take-offs' circuits carry it (an auxiliary line, a note); else the line is refused; both ends in one site are refused; free take-offs toward the other end (a site by its code, a line junction by its name) are reused only when their circuit is at that voltage; open ends, a path carrying other voltages and an existing path running the other way are notes too; the cases are tested in `web/test/lineCreation.test.ts` (docs/testing.md, section 2); then optionally the stops
+  the side panel (`lineWizard.ts`: pick the FROM and TO ends, each a site, then one of its yards (the circuits leave it through take-offs; the yard at the other end's voltage, else the highest, is preselected; with both ends at yards, the one picked or changed last leads: the other end moves to its site's yard at that voltage when the site has one, `lineDraftSetEnd`, from the panel and from map clicks alike) or its site junction (created when missing), or a line junction (`LineEndField`; end keys `Y:` / `G:` / `J:`, `NewLineSpec.from` / `to`); at a junction end each circuit gets a node of its own and the line ends at that junction, open until it is extended or tied in (lines toward the same open end take the next free `L<n>`), a take-off facing a line junction is named after it, and the voltage must be picked when neither end is a yard; the wizard **refuses** whatever would not be right and gives blue ⓘ **notes** (`NewLinePlan.notes`) for what is unusual but sound, never warnings: the line runs at the voltage its yards bring (a yard below the rated voltage at its own, a note: e.g. 230 kV conductors on 115 kV yards run at 115 kV; a yard above it through take-offs at the rated voltage, a secondary / auxiliary line, a note; ends that would bring two voltages are refused), with both ends at junctions at 0V (de-energized), and the line, its sections' energized voltage and the junction nodes it creates take it; an optional *Energized voltage* (e.g. 0V de-energized) is used instead; an energized voltage above the conductor's rating or of another current type (given, or brought by the yards) is refused, as is one given with both ends at junctions (nothing feeds it); each yard end then takes its take-offs into the yard picked when it is at that voltage; a site with a yard at it where another was picked is refused (pick that one); below the picked yard's voltage, at a site without a yard at it, the take-offs' circuits carry it (an auxiliary line, a note); else the line is refused; both ends in one site are refused; free take-offs toward the other end (a site by its code, a line junction by its name) are reused only when their circuit is at that voltage; open ends, a path carrying other voltages and an existing path running the other way are notes too; the cases are tested in `web/test/lineCreation.test.ts` (docs/testing.md, section 2); then optionally the stops
   in between (**+ Junction in between** adds an ordered stop with move up /
   down and remove; a stop is a free junction or a *site*, passed through its
   site junction, which the plan creates named after the site when the site
