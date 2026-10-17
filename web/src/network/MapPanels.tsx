@@ -2006,12 +2006,44 @@ async function loadConductor(id: string | undefined, set: (c: TransmissionConduc
 }
 
 /** Conductor of a circuit: "fill from template" plus size / unit / type / code, each editable. Renders grid cells (use inside a `form-grid`). */
-function ConductorFields({meta, value, onChange}: { meta: MetaResponse; value?: TransmissionConductor; onChange: (c: TransmissionConductor | undefined) => void }) {
+function ConductorFields({meta, value, onChange, compact}: { meta: MetaResponse; value?: TransmissionConductor; onChange: (c: TransmissionConductor | undefined) => void; compact?: boolean }) {
     const {templates} = useTemplates(TemplateKind.TRANSMISSION_CONDUCTOR)
     const set = (patch: Partial<TransmissionConductor>) => onChange({...genericConductor(), ...value, ...patch})
     const summary = value ? `${value.size} ${value.unit} ${value.type}${value.code ? ` (${value.code})` : ''}` : 'none (GENERIC when saved)'
     /** The template picker is shown only after the button is pressed. */
     const [picking, setPicking] = useState(false)
+    /** Compact: the size, unit, type and code fields are shown only after "Edit" is pressed. */
+    const [editing, setEditing] = useState(false)
+    if (compact) return (
+        <div className="span-all">
+            {picking ? (
+                <SelectField label="Conductor from template" value={undefined} emptyLabel="choose a conductor template…" options={templates.map(t => ({value: t.id, label: t.name}))}
+                             onChange={v => {
+                                 setPicking(false)
+                                 if (v) void loadConductor(v, onChange)
+                             }}/>
+            ) : (
+                <div className="field">
+                    <label>Conductor</label>
+                    <div className="toolbar small" style={{flexWrap: 'nowrap'}}>
+                        <b style={{flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}} title={summary}>{summary}</b>
+                        <button type="button" className="small" disabled={templates.length === 0} title={templates.length ? 'Copy size, unit, type and code from a conductor template' : 'No conductor templates yet'}
+                                onClick={() => setPicking(true)}>Template…</button>
+                        <button type="button" className="small" aria-expanded={editing} onClick={() => setEditing(!editing)} title="Size, unit, type and code">{editing ? 'Done' : 'Edit'}</button>
+                    </div>
+                </div>
+            )}
+            {editing && (
+                <div className="form-grid" style={{gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px 10px', marginTop: 6}}>
+                    <NumberField label="Size" value={value?.size} min={0} onChange={v => set({size: v ?? 0})}/>
+                    <SelectField label="Unit" value={value?.unit} options={meta.enums.transmissionWireUnit} onChange={v => set({unit: v as TransmissionWireUnit})}/>
+                    <SelectField label="Type" value={value?.type} options={meta.enums.transmissionWireType} onChange={v => set({type: v as TransmissionWireType})}/>
+                    <TextField label="Code" value={value?.code} onChange={v => set({code: v || undefined})}
+                               action={{label: 'generic', title: 'Reset to the GENERIC conductor (size 0, SQMM)', disabled: !!value && value.type === 'GENERIC' && value.size === 0, onClick: () => onChange(genericConductor())}}/>
+                </div>
+            )}
+        </div>
+    )
     return (
         <>
             {picking ? (
@@ -2564,21 +2596,27 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
 
     return (
         <div className="regen-box" style={{marginBottom: 10}}>
-            <p className="small muted" style={{margin: '0 0 8px'}}>Pick the two ends (a site, then one of its yards or its site junction, or a line junction), any junctions the line passes in between, and the conductor (on the map: click the FROM site or junction, the TO site, then the junctions or sites in between, in order; right-click one to take it out); the wizard creates a take-off per circuit at each yard end (a node of its own per circuit at a junction end, where the line stays open), a route per leg (reusing one that already runs between two stops), the circuit sections (attached, joined at the junctions and energized) and one line per circuit, all named by the model rules.</p>
-            <div className="form-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
-                <LineEndField label="From" value={from} other={to} onChange={setFrom}/>
-                <LineEndField label="To" value={to} other={from} onChange={setTo}/>
+            <p className="small muted" style={{margin: '0 0 6px'}}>On the map: click the FROM site or junction, the TO one, then any stops in between, in order (right-click one to take it out); or pick them here.</p>
+            <details className="small muted" style={{margin: '0 0 8px'}}>
+                <summary style={{cursor: 'pointer'}}>What it creates</summary>
+                A take-off per circuit at each yard end (a node of its own per circuit at a junction end, where the line stays open), a route per leg (reusing one that already runs between two stops), the circuit sections (attached, joined at the junctions and energized) and one line per circuit, all named by the model rules.
+            </details>
+            <div className="form-grid" style={{gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: '8px 10px'}}>
+                <div className="span-all line-ends">
+                    <LineEndField label="From" value={from} other={to} onChange={setFrom}/>
+                    <LineEndField label="To" value={to} other={from} onChange={setTo}/>
+                </div>
                 <div className="span-all">
                     <div className="toolbar small" style={{marginBottom: vias.length ? 4 : 0}}>
-                        <span className="muted">Via junctions ({chosenVias.length}){plan.newJunctions.length ? <> · creates {plan.newJunctions.map(j => <b key={j.id}>{j.name ?? j.id}</b>).reduce<ReactNode[]>((acc, x, i) => i ? [...acc, ', ', x] : [x], [])}</> : null}</span>
+                        <span className="muted">Stops in between ({chosenVias.length}){plan.newJunctions.length ? <> · creates {plan.newJunctions.map(j => <b key={j.id}>{j.name ?? j.id}</b>).reduce<ReactNode[]>((acc, x, i) => i ? [...acc, ', ', x] : [x], [])}</> : null}</span>
                         <span className="spacer" style={{flex: 1}}/>
                         <button type="button" className="small" disabled={!viaOptions.length || vias.length >= LINE_MAX_VIAS} onClick={() => setVias(prev => [...prev, ''])}
-                                title={viaOptions.length ? 'Pass a junction or a site (through its site junction) between the yards; the line gets one section per leg' : 'No other sites or junctions in this network yet'}>+ Junction in between</button>
+                                title={viaOptions.length ? 'Pass a junction or a site (through its site junction) between the ends; the line gets one section per leg' : 'No other sites or junctions in this network yet'}>+ Stop</button>
                     </div>
                     {vias.map((id, i) => (
-                        <div key={i} className="toolbar small" style={{marginBottom: 4}}>
+                        <div key={i} className="toolbar small" style={{marginBottom: 4, flexWrap: 'nowrap'}}>
                             <span className="muted">{i + 1}.</span>
-                            <select value={id} onChange={e => setVia(i, e.target.value)} style={{flex: 1}}>
+                            <select value={id} onChange={e => setVia(i, e.target.value)} style={{flex: 1, minWidth: 0}}>
                                 <option value="">choose a junction or a site…</option>
                                 {viaOptions.filter(o => o.value === id || !vias.includes(o.value)).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
@@ -2588,20 +2626,27 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
                         </div>
                     ))}
                 </div>
-                <SelectField label="Conductor (circuit template)" value={templateId} options={templates.map(t => ({value: t.id, label: t.name}))} allowEmpty onChange={v => void pickTemplate(v)} className="span-all"
-                             hint={templates.length ? 'Fills voltage, bundle and conductor' : 'No circuit templates yet'}/>
-                <SelectField label="Voltage" value={voltage} options={meta.enums.transmissionVoltage} allowEmpty onChange={setVoltage}/>
-                <NumberField label="Bundle" value={bundle} min={1} step={1} onChange={setBundle}/>
-                <ConductorFields meta={meta} value={conductor} onChange={setConductor}/>
-                <NumberField label="Circuits" value={count} min={1} step={1} onChange={setCount} hint="Parallel circuits on the same route"/>
-                <SelectField label="Energized voltage" value={energizedVoltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={plan.energizedVoltage && !energizedVoltage ? `from the yards: ${plan.energizedVoltage}` : "from the yards"}
-                             onChange={setEnergizedVoltage} hint="Empty: the voltage the yards bring (0 V when both ends are junctions); e.g. 0V (De-Energized) for a line built but not in service"/>
+                <SelectField label="Circuit template" value={templateId} options={templates.map(t => ({value: t.id, label: t.name}))} allowEmpty onChange={v => void pickTemplate(v)} className="span-all"
+                             emptyLabel={templates.length ? 'none (a template fills voltage, bundle and conductor)' : 'none (no circuit templates yet)'}/>
+                <SelectField label="Voltage (rated)" value={voltage} options={meta.enums.transmissionVoltage} allowEmpty onChange={setVoltage} className="span-3"/>
+                {/* empty: the voltage the yards bring (0 V when both ends are junctions); e.g. 0V (De-Energized) for a line built but not in service */}
+                <SelectField label="Energized voltage" value={energizedVoltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={plan.energizedVoltage && !energizedVoltage ? `from the ends: ${plan.energizedVoltage}` : 'from the ends'}
+                             onChange={setEnergizedVoltage} className="span-3"/>
+                <NumberField label="Circuits" value={count} min={1} step={1} onChange={setCount} className="span-2"/>
+                <NumberField label="Bundle" value={bundle} min={1} step={1} onChange={setBundle} className="span-2"/>
                 <NumberField label="Length (km)" value={lengthKm} min={0} onChange={v => {
                     setLengthTouched(true)
                     setLengthKm(v)
-                }} hint={km !== undefined ? `straight line ${km} km${plan.legs.length > 1 ? ', shared among the sections by distance' : ''}` : undefined}/>
-                <CheckboxField label="Planned line (not built yet): take-offs, circuits, lines and new connections are created planned and drawn in grey" checked={planned} onChange={setPlanned} className="span-all"/>
-                {freeTakeOffNote && <CheckboxField label={`Use the free take-offs the yards already have toward each other instead of creating new ones (${freeTakeOffNote})`} checked={reuseTakeOffs} onChange={setReuseTakeOffs} className="span-all"/>}
+                }} hint={km !== undefined ? `straight ${km} km` : undefined} className="span-2"/>
+                <ConductorFields meta={meta} value={conductor} onChange={setConductor} compact/>
+                <label className="span-all small inline-check" title="Take-offs, circuits, lines and new connections are created planned and drawn in grey">
+                    <input type="checkbox" checked={planned} onChange={e => setPlanned(e.target.checked)}/> Planned line (not built yet)
+                </label>
+                {freeTakeOffNote && (
+                    <label className="span-all small inline-check">
+                        <input type="checkbox" checked={reuseTakeOffs} onChange={e => setReuseTakeOffs(e.target.checked)}/> Use the free take-offs toward each other ({freeTakeOffNote})
+                    </label>
+                )}
                 {plan.legs.map((leg, i) => {
                     const choice = legs[i] ?? {}
                     const multi = plan.legs.length > 1
@@ -2618,7 +2663,7 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
                                                  ...leg.otherVoltage.map(o => ({value: o.path.id, label: `Use existing: ${o.path.name} – carries ${o.voltages.join(' / ')} circuits (${doc.circuits.filter(c => c.pathId === o.path.id).length} circuits, ${o.path.waypoints.length} pts)`})),
                                              ]}
                                              onChange={v => setLeg(i, !v || v === NEW_PATH ? {createPath: v === NEW_PATH, pathId: undefined} : {createPath: false, pathId: v})}
-                                             hint={leg.path.created ? 'A new path is created; choose an existing one to share its route instead' : `Shares the existing path ${leg.path.name} (any voltage can share a route); choose "Create a new path" for a separate one`}/>
+                                             hint={leg.path.created ? 'A new path; or share an existing route' : `Shares ${leg.path.name} (any voltage can share a route)`}/>
                             ) : <p className="small muted span-all" style={{margin: 0}}>No route between {legName} yet: a new path is created (waypoints can be added afterwards).</p>}
                             {leg.path.created && <TextField label="New path name" value={choice.pathName ?? ''} onChange={v => setLeg(i, {pathName: v})} placeholder={leg.path.name || 'rule name'} className="span-all"/>}
                         </div>
@@ -2676,9 +2721,9 @@ function LineEndField({label, value, other, onChange}: { label: string; value: s
     const siteJunction = site ? siteJunctionOf(doc, site.id) : undefined
     const otherYard = lineEndYardOf(doc, other)
     return (
-        <div className="field">
+        <div className="line-end">
             <label>{label}</label>
-            <select value={site ? `S:${site.id}` : value.startsWith('J:') ? value : ''} onChange={e => {
+            <select value={site ? `S:${site.id}` : value.startsWith('J:') ? value : ''} className={site ? undefined : 'wide'} title="A site, or a line junction" onChange={e => {
                 const v = e.target.value
                 if (!v.startsWith('S:')) return onChange(v)
                 // a site: a yard at the other end's voltage, else the highest, else its site junction
@@ -2690,9 +2735,9 @@ function LineEndField({label, value, other, onChange}: { label: string; value: s
                 {placeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {site && (
-                <select value={value} onChange={e => onChange(e.target.value)} style={{marginTop: 4}}>
-                    {yards.map(y => <option key={y.id} value={`Y:${y.id}`}>Yard {y.yardName} ({enumLabel(y.voltage)}): take-offs</option>)}
-                    <option value={`G:${site.id}`}>Site junction {siteJunction ? siteJunction.name ?? siteJunction.id : '(created)'}: a node per circuit</option>
+                <select value={value} onChange={e => onChange(e.target.value)} title="Where at the site: a yard (a take-off per circuit) or the site junction (a node per circuit)">
+                    {yards.map(y => <option key={y.id} value={`Y:${y.id}`}>Yard {y.yardName}{y.yardName === yardNameForVoltage(y.voltage) ? '' : ` (${enumLabel(y.voltage)})`} · take-offs</option>)}
+                    <option value={`G:${site.id}`}>Site junction {siteJunction ? siteJunction.name ?? siteJunction.id : '(created)'} · a node per circuit</option>
                 </select>
             )}
         </div>
