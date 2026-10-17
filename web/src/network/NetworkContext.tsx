@@ -471,7 +471,9 @@ export function NetworkProvider({networkId, children}: { networkId: string; chil
         }
     }, [networkId])
 
-    const issues = useMemo(() => state ? validateNetworkDocument(state.doc) : [], [state])
+    // validated again only when the document changes (not when the journal acknowledges a batch)
+    const doc = state?.doc
+    const issues = useMemo(() => doc ? validateNetworkDocument(doc) : [], [doc])
 
     const value = useMemo<NetworkEditor | null>(() => state ? {
         networkId,

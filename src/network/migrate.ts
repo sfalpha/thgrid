@@ -14,6 +14,7 @@ import {CoordinatesProps} from "../models/coordinates";
 import {TransmissionVoltage} from "../models/transmission.voltage";
 import {junctionConnectionNaming} from "./naming";
 import {genericConductor} from "../models/transmission.conductor";
+import {connectionOfEnd, recordById} from "./lookup";
 
 export {takeOffCircuit, takeOffVoltage}
 
@@ -40,14 +41,14 @@ export function connectionVoltage(doc: NetworkDocument, conn: ConnectionRecord):
     if (conn.voltage) return conn.voltage
     if (conn.junction?.kind === ConnectionJunctionKind.SUBSTATION) {
         const takeOff = conn.nodes.find(n => n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF)
-        return (takeOff && takeOffVoltage(doc, takeOff.id)) ?? doc.substations.find(s => s.id === conn.junction.id)?.voltage
+        return (takeOff && takeOffVoltage(doc, takeOff.id)) ?? recordById(doc.substations, conn.junction.id)?.voltage
     }
     return undefined
 }
 
 /** The TRANSMISSION connection holding this circuit end (FROM / TO), if any. */
 export function circuitEndConnection(doc: NetworkDocument, circuitId: string, end: string): ConnectionRecord | undefined {
-    return doc.connections.find(c => c.scope === ConnectionScope.TRANSMISSION && c.nodes.some(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === circuitId && n.terminal === end))
+    return connectionOfEnd(doc, circuitId, end)
 }
 
 export function migrateNetworkDocument(input: NetworkDocument): MigrationResult {

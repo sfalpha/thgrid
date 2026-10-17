@@ -12,6 +12,7 @@
  */
 import {ConnectionJunctionKind, ConnectionJunctionRef, ConnectionRecord, ConnectionScope, NetworkDocument, NetworkNodeKind} from "./records";
 import {TransmissionVoltage} from "../models/transmission.voltage";
+import {connectionsOfTakeOff, recordById} from "./lookup";
 
 export const siteRef = (groupId: string): ConnectionJunctionRef => ({kind: ConnectionJunctionKind.SUBSTATION_GROUP, id: groupId})
 export const yardRef = (substationId: string): ConnectionJunctionRef => ({kind: ConnectionJunctionKind.SUBSTATION, id: substationId})
@@ -30,8 +31,8 @@ export function sameRef(a?: ConnectionJunctionRef, b?: ConnectionJunctionRef): b
 export function siteOfRef(doc: NetworkDocument, ref?: ConnectionJunctionRef): string | undefined {
     if (!ref) return undefined
     if (ref.kind === ConnectionJunctionKind.SUBSTATION_GROUP) return ref.id
-    if (ref.kind === ConnectionJunctionKind.SUBSTATION) return doc.substations.find(s => s.id === ref.id)?.groupId
-    return doc.junctions.find(j => j.id === ref.id)?.groupId
+    if (ref.kind === ConnectionJunctionKind.SUBSTATION) return recordById(doc.substations, ref.id)?.groupId
+    return recordById(doc.junctions, ref.id)?.groupId
 }
 
 /**
@@ -68,8 +69,8 @@ const holdsTakeOff = (c: ConnectionRecord, takeOffId: string) => c.nodes.some(n 
  */
 export function takeOffCircuit(doc: NetworkDocument, takeOffId: string): { line?: ConnectionRecord; yard: ConnectionRecord[] } {
     return {
-        line: doc.connections.find(c => c.scope === ConnectionScope.TRANSMISSION && holdsTakeOff(c, takeOffId)),
-        yard: doc.connections.filter(c => c.scope === ConnectionScope.SUBSTATION && holdsTakeOff(c, takeOffId)),
+        line: connectionsOfTakeOff(doc, takeOffId).find(c => c.scope === ConnectionScope.TRANSMISSION),
+        yard: connectionsOfTakeOff(doc, takeOffId).filter(c => c.scope === ConnectionScope.SUBSTATION),
     }
 }
 
@@ -79,8 +80,8 @@ export function takeOffCircuit(doc: NetworkDocument, takeOffId: string): { line?
  * its own.
  */
 export function takeOffVoltage(doc: NetworkDocument, takeOffId: string): TransmissionVoltage | undefined {
-    const t = doc.takeOffs.find(x => x.id === takeOffId)
+    const t = recordById(doc.takeOffs, takeOffId)
     if (!t) return undefined
     const circuit = takeOffCircuit(doc, takeOffId)
-    return circuit.line?.voltage ?? circuit.yard.find(c => c.voltage)?.voltage ?? doc.substations.find(s => s.id === t.substationId)?.voltage
+    return circuit.line?.voltage ?? circuit.yard.find(c => c.voltage)?.voltage ?? recordById(doc.substations, t.substationId)?.voltage
 }

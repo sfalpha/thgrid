@@ -22,6 +22,7 @@ import {
 } from '@shared/network/records'
 import {applyOps, NetworkOp, pickId} from '@shared/network/ops'
 import {atPathEnd} from '@shared/network/refs'
+import {circuitsOnPath, linesOfCircuit, recordById} from '@shared/network/lookup'
 import {circuitEndConnection, connectionVoltage, takeOffCircuit, takeOffVoltage} from '@shared/network/migrate'
 import {junctionConnectionNaming, takeOffConnectionNaming} from '@shared/network/naming'
 import {energizedVsRated, TransmissionVoltage, transmissionTypeOf} from '@shared/models/transmission.voltage'
@@ -59,15 +60,15 @@ export function sameRef(a?: ConnectionJunctionRef, b?: ConnectionJunctionRef): b
 export function refLabel(doc: NetworkDocument, ref?: ConnectionJunctionRef): string {
     if (!ref) return '–'
     if (ref.kind === ConnectionJunctionKind.SUBSTATION_GROUP) {
-        const group = doc.substationGroups.find(g => g.id === ref.id)
+        const group = recordById(doc.substationGroups, ref.id)
         return group ? group.groupName : ref.id
     }
     if (ref.kind === ConnectionJunctionKind.SUBSTATION) {
-        const yard = doc.substations.find(s => s.id === ref.id)
-        const group = yard && doc.substationGroups.find(g => g.id === yard.groupId)
+        const yard = recordById(doc.substations, ref.id)
+        const group = yard && recordById(doc.substationGroups, yard.groupId)
         return yard ? `${group?.groupName ?? ''} ${yard.yardName}`.trim() : ref.id
     }
-    const j = doc.junctions.find(x => x.id === ref.id)
+    const j = recordById(doc.junctions, ref.id)
     return j ? `Junction ${j.name ?? j.id}` : ref.id
 }
 
@@ -308,7 +309,7 @@ export interface EndVoltageInfo {
  */
 export function endVoltageNotes(doc: NetworkDocument, circuitId: string, energized?: TransmissionVoltage, rated?: TransmissionVoltage): { mismatches: EnergizedMismatch[]; info: EndVoltageInfo[] } {
     const out: { mismatches: EnergizedMismatch[]; info: EndVoltageInfo[] } = {mismatches: [], info: []}
-    const circuit = doc.circuits.find(c => c.id === circuitId)
+    const circuit = recordById(doc.circuits, circuitId)
     const effective = energized ?? rated ?? effectiveVoltage(circuit)
     // de-energized on purpose (0 V): not a mismatch with the live nodes it stays attached to
     if (!effective || effective === TransmissionVoltage.DE_ENERGIZED) return out
@@ -359,8 +360,8 @@ export interface CircuitStatus {
 }
 
 export function circuitStatus(doc: NetworkDocument, circuitId: string): CircuitStatus {
-    const c = doc.circuits.find(x => x.id === circuitId)
-    const path = c && doc.paths.find(p => p.id === c.pathId)
+    const c = recordById(doc.circuits, circuitId)
+    const path = c && recordById(doc.paths, c.pathId)
     const from = circuitEndRef(doc, circuitId, CIRCUIT_END_FROM)
     const to = circuitEndRef(doc, circuitId, CIRCUIT_END_TO)
     const mismatch = !!path && ((!!from && !!path.from && !atPathEnd(doc, from, path.from)) || (!!to && !!path.to && !atPathEnd(doc, to, path.to)))
@@ -375,7 +376,7 @@ export function circuitStatus(doc: NetworkDocument, circuitId: string): CircuitS
  */
 export function circuitWarnings(doc: NetworkDocument, circuitId: string): string[] {
     const st = circuitStatus(doc, circuitId)
-    const c = doc.circuits.find(x => x.id === circuitId)
+    const c = recordById(doc.circuits, circuitId)
     return [
         c && !c.pathId && (st.looseFrom || st.looseTo) ? 'no path: not drawn' : '',
         st.looseFrom ? `loose ${CIRCUIT_END_FROM}` : '',
@@ -383,7 +384,7 @@ export function circuitWarnings(doc: NetworkDocument, circuitId: string): string
         st.mismatch ? 'end differs from path' : '',
         ...st.energized.map(m => `energized ${effectiveVoltage(c) ?? 'not set'} ≠ ${m.expected} at ${m.end}`),
         ratingProblem(c?.voltage, c?.energizedVoltage) ?? '',
-        doc.lines.some(l => l.circuitIds.includes(circuitId)) ? '' : 'no line',
+        linesOfCircuit(doc, circuitId).length ? '' : 'no line',
     ].filter(Boolean)
 }
 
@@ -396,8 +397,8 @@ export interface PathStatus {
 }
 
 export function pathStatus(doc: NetworkDocument, pathId: string): PathStatus {
-    const p = doc.paths.find(x => x.id === pathId)
-    const circuits = doc.circuits.filter(c => c.pathId === pathId)
+    const p = recordById(doc.paths, pathId)
+    const circuits = circuitsOnPath(doc, pathId)
     const loose = circuits.filter(c => {
         const s = circuitStatus(doc, c.id)
         return s.looseFrom || s.looseTo

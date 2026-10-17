@@ -701,6 +701,16 @@ fewer than two nodes; deleting a site deletes its generation units; lines
 ending at a deleted yard or junction lose that end (renaming one carries
 the line ends along); deleting a bay keeps its take-offs but clears their
 `bayId`), `uniqueId(doc, prefix)`, `connectionsOfNode`, `findRecord`.
+
+A document is never changed once made: every op gives new lists. Lookups that
+would scan a whole list therefore go through tables built on first use and
+kept with the list (`lookup.ts`, a WeakMap keyed by the array; documents
+sharing a list share its tables): `recordById`, `connectionOfEnd` (the
+TRANSMISSION connection holding a circuit end, behind `circuitEndConnection`),
+`connectionsAt` (a yard or junction), `connectionsOfTakeOff`, `yardsOfSite`,
+`junctionsOfSite`, `extensionSites`, `circuitsOnPath`, `pathsEndingAt`,
+`linesOfCircuit` and `ofYard` (buses, bays, take-offs). Code building a list
+must not change it once it is part of a document.
 Undo/redo in the UI is implemented with inverse ops, so undos are journaled
 too.
 

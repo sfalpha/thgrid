@@ -5,6 +5,7 @@ import {CIRCUIT_END_FROM, CIRCUIT_END_TO, CircuitEnd, ConnectionJunctionKind, Co
 import {cascadeDeleteOps, pickId} from '@shared/network/ops'
 import {moveSiteOps} from '@shared/network/siteJunction'
 import {siteOfRef} from '@shared/network/refs'
+import {circuitsOnPath, connectionsAt, junctionsOfSite, ofYard, pathsEndingAt, recordById, yardsOfSite} from '@shared/network/lookup'
 import {TransmissionVoltage} from '@shared/models/transmission.voltage'
 import {extensionsOf} from '@shared/network/extensions'
 import {hasTowerHints, towerLanePositions} from './towerLayout'
@@ -16,7 +17,7 @@ import {useNetworkEditor} from './NetworkContext'
 import {useSideWidth} from '../hooks/useSideWidth'
 import {MapPanels} from './MapPanels'
 import {JunctionArrival, JunctionDrawing, layoutJunction, trimStartAtCircle} from './junctionLayout'
-import {capacityText, CircuitDraft, CreateDraft, draftPickedPlaces, dropDraftPlace, EMPTY_CIRCUIT_DRAFT, EMPTY_LINE_DRAFT, EMPTY_PATH_DRAFT, endLocation, generationUnitsOf, LineDraft, lineDraftJunctionClick, lineDraftPlaces, lineDraftSiteClick, PathDraft, pickDraftEnd, JUNCTION_COLOR, JUNCTION_FILL_OPACITY, junctionSize, locationOfRef, Mode, plannedVoltageColor, mapDetailScale, SITE_MARKER_MIN_PX, SITE_MARKER_PX, SITE_SIZE_RANK, siteSize, voltageColor, voltageKv, voltageSymbolSvg, WaypointEdit} from './mapUtil'
+import {capacityText, CircuitDraft, CreateDraft, draftPickedPlaces, dropDraftPlace, EMPTY_CIRCUIT_DRAFT, EMPTY_LINE_DRAFT, EMPTY_PATH_DRAFT, endLocation, generationUnitsOf, LineDraft, lineDraftJunctionClick, lineDraftSiteClick, PathDraft, pickDraftEnd, JUNCTION_COLOR, JUNCTION_FILL_OPACITY, junctionSize, locationOfRef, Mode, plannedVoltageColor, mapDetailScale, SITE_MARKER_MIN_PX, SITE_MARKER_PX, SITE_SIZE_RANK, siteSize, voltageColor, voltageKv, voltageSymbolSvg, WaypointEdit} from './mapUtil'
 import type {Selection} from './NetworkContext'
 import type {MetaResponse} from '../api/client'
 import {yardNameForVoltage} from '@shared/models/naming'
@@ -128,8 +129,8 @@ function layoutLanes(doc: NetworkDocument, siblings: Map<string, string[]>, junc
     const arrivals = new Map<string, Arrival[]>()
     for (const [key, ids] of siblings) {
         if (key.startsWith('no-path:')) continue
-        const route = doc.paths.find(p => p.id === key)
-        const circuits = ids.map(id => doc.circuits.find(c => c.id === id)).filter((c): c is TransmissionCircuitRecord => !!c)
+        const route = recordById(doc.paths, key)
+        const circuits = ids.map(id => recordById(doc.circuits, id)).filter((c): c is TransmissionCircuitRecord => !!c)
         for (const end of [CIRCUIT_END_FROM, CIRCUIT_END_TO]) {
             const first = circuits.find(c => ringOf(c.id, end, route))
             if (!first) continue
@@ -193,7 +194,7 @@ function layoutLanes(doc: NetworkDocument, siblings: Map<string, string[]>, junc
                 if (!conn || conn.junction.id !== jid) return undefined
                 for (const n of conn.nodes) {
                     if (n.kind !== NetworkNodeKind.TRANSMISSION_CIRCUIT || (n.id === circuitId && n.terminal === a.end)) continue
-                    const partner = doc.circuits.find(c => c.id === n.id)
+                    const partner = recordById(doc.circuits, n.id)
                     const pa = partner && list.find(x => x.key === laneGroup(partner) && x.end === n.terminal)
                     if (!pa || unit.includes(pa)) continue
                     return ccw(fixed.has(pa.key) ? portAngle(n.id, pa) : angleOf(pa.u))
@@ -295,7 +296,7 @@ function groupedView(doc: NetworkDocument, grouped: Map<string, string>): Networ
     /** A place as a group member: its site, or a line junction grouped into a site. */
     const placeOf = (ref?: ConnectionJunctionRef) => siteOfRef(doc, ref) ?? (ref && grouped.has(ref.id) ? ref.id : undefined)
     const endPlace = (c: TransmissionCircuitRecord, end: string) => {
-        const path = doc.paths.find(p => p.id === c.pathId)
+        const path = recordById(doc.paths, c.pathId)
         return placeOf(connectionAt.get(`${c.id}:${end}`) ?? (end === CIRCUIT_END_FROM ? path?.from : path?.to))
     }
     return {
@@ -408,6 +409,52 @@ function fitSites(map: L.Map, doc: NetworkDocument): void {
     else map.fitBounds(L.latLngBounds(sites), {padding: [48, 48]})
 }
 
+/* ---------- what the network drawing leaves for the selection overlay ---------- */
+
+/** A site or junction marker as drawn: its label, and whether the drawing shows the label without hovering. */
+interface DrawnMarker {
+    marker: L.Marker
+    label: string
+    size: number
+    permanent: boolean
+}
+
+/**
+ * What the network drawing (the base layer, drawn again only when the network, the zoom or a toggle changes) leaves for
+ * the selection overlay (`drawOverlay`), which follows the selection, the mode and the drafts without drawing the
+ * network again.
+ */
+interface Drawn {
+    /** Site and junction markers (`G:<site id>`, `J:<junction id>`). */
+    markers: Map<string, DrawnMarker>
+    /** Where a place (`G:` / `J:`) is drawn: an extension or a junction drawn as part of a site is drawn as that site. */
+    drawnAs: (place: string) => string
+    /** Circuit lines (merged far out: the circuits of a path at one voltage): points, width, circuits and their path. */
+    units: { pts: L.LatLng[]; weight: number; circuitIds: string[]; pathId?: string }[]
+    /** Paths without circuits: their points, and the ring a path with a single point is drawn as. */
+    unusedPaths: Map<string, { pts: L.LatLng[]; ring?: L.CircleMarker }>
+    /** Connections drawn inside junction areas: their pieces. */
+    connections: Map<string, { pts: L.LatLng[]; weight: number }[]>
+    /** Junction areas, by junction id. */
+    areas: Map<string, L.CircleMarker>
+    /** Junctions, paths and sites the toggles leave out; drawn anyway while selected or edited (`keep`). */
+    hidden: Set<string>
+    /** Markers can be dragged (select mode only; the overlay switches them). */
+    draggable: boolean
+    /** Undoes what the overlay changed on the drawing (marker classes and labels, area and ring styles). */
+    restore: (() => void)[]
+}
+
+const emptyDrawn = (): Drawn => ({markers: new Map(), drawnAs: p => p, units: [], unusedPaths: new Map(), connections: new Map(), areas: new Map(), hidden: new Set(), draggable: true, restore: []})
+
+/** Tooltip options of a site or junction label (`permanent`: shown without hovering). */
+const markerLabel = (size: number, permanent: boolean): L.TooltipOptions => ({permanent, direction: 'right', offset: [size / 2 + 2, 0], className: 'map-label'})
+
+/** Junction area outline: as drawn, selected, or picked in a draft. */
+const AREA_STYLE = {color: JUNCTION_COLOR, weight: 1, opacity: .8, dashArray: undefined}
+const AREA_SELECTED_STYLE = {color: '#ffd21f', weight: 3, opacity: 1, dashArray: undefined}
+const AREA_PICKED_STYLE = {color: '#ffd21f', weight: 2.5, opacity: 1, dashArray: '4 3'}
+
 /* ---------- remembered map view (centre + zoom per network) ---------- */
 
 interface MapView {
@@ -448,6 +495,8 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
     const containerRef = useRef<HTMLDivElement>(null)
     const mapRef = useRef<L.Map | null>(null)
     const layerRef = useRef<L.LayerGroup | null>(null)
+    /** The selection overlay (`drawOverlay`): highlights and waypoint handles, over the network drawing in `layerRef`. */
+    const overlayRef = useRef<L.LayerGroup | null>(null)
     const fitted = useRef(false)   // the initial fit to the sites happened (or a remembered view was restored)
     const [mode, setModeState] = useState<Mode>('select')
     /** Mode `addCircuit`: the new circuit's ends, set in its panel or by clicking sites and junctions on the map (right-click takes an end out). */
@@ -492,11 +541,13 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
     pathDraftRef.current = pathDraft
     const draftRef = useRef(draft)
     draftRef.current = draft
+    /** What the network drawing left for the selection overlay (see `Drawn`). */
+    const drawnRef = useRef<Drawn>(emptyDrawn())
     /**
-     * The site and junction markers drawn last (`G:<site id>`, `J:<junction id>`), and where a place is drawn: an
-     * extension or a junction drawn as part of a site is drawn as that site.
+     * Selected or edited records the toggles leave out (a junction whose circuits are all hidden, a path without circuits,
+     * a planned or low-voltage site), drawn anyway: their ids, space-separated. Set by `syncKeep`.
      */
-    const drawnRef = useRef<{ markers: Map<string, L.Marker>; drawnAs: (place: string) => string }>({markers: new Map(), drawnAs: p => p})
+    const [keep, setKeep] = useState('')
     /** The draft of the current mode ("+ Line", "+ Path", "+ Circuit"), if any. */
     const currentDraft = useCallback(() => modeRef.current === 'addLine' ? lineDraftRef.current : modeRef.current === 'addPath' ? pathDraftRef.current
         : modeRef.current === 'addCircuit' ? draftRef.current : undefined, [])
@@ -526,7 +577,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         const keys = new Set(draftPickedPlaces(edRef.current.doc, d).map(p => drawnRef.current.drawnAs(p)))
         let best: { key: string; dist: number } | undefined
         for (const key of keys) {
-            const m = drawnRef.current.markers.get(key)
+            const m = drawnRef.current.markers.get(key)?.marker
             const icon = m?.getElement()
             if (!m || !icon) continue
             const r = icon.getBoundingClientRect()
@@ -684,6 +735,97 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         }
     }, [setMode, insertWaypoint, editedPath, setCreateDraft, performSplit])
 
+    /**
+     * Draws what follows the selection, the mode and the drafts over the network drawing, without drawing the network
+     * again: the selected path, circuits, line or connection highlighted (in a pane under the lines), the selected and the
+     * picked sites and junctions marked and labelled, the waypoint handles of the path being edited, and markers that
+     * drag in select mode only. Undoes what it did last time first.
+     */
+    const drawOverlay = useCallback(() => {
+        const map = mapRef.current, layer = overlayRef.current
+        if (!map || !layer) return
+        const drawn = drawnRef.current
+        for (const undo of drawn.restore.splice(0)) undo()
+        layer.clearLayers()
+        const {doc, selection: sel} = edRef.current
+        const mode = modeRef.current, wp = wpRef.current
+        const draggable = mode === 'select'
+        if (drawn.draggable !== draggable) {
+            for (const {marker} of drawn.markers.values()) {
+                if (draggable) marker.dragging?.enable()
+                else marker.dragging?.disable()
+            }
+            drawn.draggable = draggable
+        }
+
+        // The selected site or junction, and the places picked in a draft, as drawn (a grouped extension or junction shows
+        // on its site): the site marker marked, the label shown, a junction's area outlined.
+        const d = currentDraft()
+        const picked = new Set(d ? draftPickedPlaces(doc, d).map(p => drawn.drawnAs(p)) : [])
+        const selKey = sel?.collection === 'substationGroups' ? drawn.drawnAs(`G:${sel.id}`) : sel?.collection === 'junctions' ? drawn.drawnAs(`J:${sel.id}`) : undefined
+        for (const key of new Set([...picked, ...(selKey ? [selKey] : [])])) {
+            const cls = key === selKey ? 'selected' : 'pick'
+            const m = drawn.markers.get(key)
+            if (m) {
+                const el = m.marker.getElement()?.querySelector('.map-marker')
+                el?.classList.add(cls)
+                if (!m.permanent) m.marker.unbindTooltip().bindTooltip(m.label, markerLabel(m.size, true))
+                drawn.restore.push(() => {
+                    el?.classList.remove(cls)
+                    if (!m.permanent) m.marker.unbindTooltip().bindTooltip(m.label, markerLabel(m.size, false))
+                })
+            }
+            const area = key.startsWith('J:') ? drawn.areas.get(key.slice(2)) : undefined
+            if (area) {
+                area.setStyle(key === selKey ? AREA_SELECTED_STYLE : AREA_PICKED_STYLE)
+                drawn.restore.push(() => area.setStyle(AREA_STYLE))
+            }
+        }
+
+        // Highlights under the lines: the selected circuit, every circuit on the selected path (a circuit's path when a
+        // circuit is selected), every section of the selected line, the selected connection inside its junction.
+        const highlight = (pts: L.LatLng[], color: string, weight: number) => L.polyline(pts, {pane: 'highlights', color, weight, opacity: .9, interactive: false}).addTo(layer)
+        if (sel?.collection === 'circuits' || sel?.collection === 'paths' || sel?.collection === 'lines') {
+            const pathId = sel.collection === 'paths' ? sel.id : sel.collection === 'circuits' ? recordById(doc.circuits, sel.id)?.pathId : undefined
+            const lineCircuits = new Set(sel.collection === 'lines' ? recordById(doc.lines, sel.id)?.circuitIds ?? [] : [])
+            for (const u of drawn.units) {
+                const selected = sel.collection === 'circuits' && u.circuitIds.includes(sel.id)
+                if (selected || (pathId !== undefined && u.pathId === pathId) || u.circuitIds.some(id => lineCircuits.has(id))) highlight(u.pts, selected ? '#ffd21f' : '#ffe680', u.weight + (selected ? 7 : 4))
+            }
+        }
+        const unused = sel?.collection === 'paths' ? drawn.unusedPaths.get(sel.id) : undefined
+        if (unused?.ring) {
+            const ring = unused.ring
+            ring.setStyle({color: '#ffd21f', weight: 3})
+            drawn.restore.push(() => ring.setStyle({color: '#8b949e', weight: 2}))
+        } else if (unused) highlight(unused.pts, '#ffd21f', 9)
+        if (sel?.collection === 'connections') for (const piece of drawn.connections.get(sel.id) ?? []) highlight(piece.pts, '#ffd21f', piece.weight + 6)
+
+        // Waypoint handles of the path being edited: click one to select it, drag it to move it.
+        if (mode === 'editWaypoints' && wp) recordById(doc.paths, wp.pathId)?.waypoints.forEach((w, i) => {
+            const icon = L.divIcon({className: '', html: `<div class="map-vertex ${wp.selected === i ? 'selected' : ''}" title="waypoint ${i + 1}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7]})
+            const m = L.marker(toLatLng(w), {icon, draggable: true, zIndexOffset: 1000})
+            m.on('click', ev => {
+                L.DomEvent.stopPropagation(ev)
+                updateWp({selected: i})
+            })
+            m.on('dragend', () => {
+                const ll = m.getLatLng()
+                const current = editedPath()
+                if (!current) return
+                if (setPath(current.waypoints.map((q, k) => k === i ? {latitude: Number(ll.lat.toFixed(6)), longitude: Number(ll.lng.toFixed(6))} : q))) updateWp({selected: i})
+            })
+            m.addTo(layer)
+        })
+    }, [currentDraft, updateWp, editedPath, setPath])
+
+    /** Keeps the selected record and the path being edited drawn when the toggles would leave them out (`keep`). */
+    const syncKeep = useCallback(() => {
+        const hidden = drawnRef.current.hidden
+        const next = [...new Set([edRef.current.selection?.id, wpRef.current?.pathId])].filter((id): id is string => !!id && hidden.has(id)).join(' ')
+        setKeep(prev => prev === next ? prev : next)
+    }, [])
+
     // Create the map once. The view (centre + zoom) the network was last shown at is restored; otherwise the first draw fits the sites.
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return
@@ -699,7 +841,10 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         if (featuresRef.current.baseMap) tileRef.current.addTo(map)
         // Junction areas sit under the lines (overlayPane is 400) and above the tiles.
         map.createPane('junctionAreas').style.zIndex = '390'
+        // The selection highlights too, above the areas.
+        map.createPane('highlights').style.zIndex = '395'
         layerRef.current = L.layerGroup().addTo(map)
+        overlayRef.current = L.layerGroup().addTo(map)
         map.on('click', e => onMapClick(e.latlng))
         // Drafting a path, circuit or line: a right-click on (or next to) a picked site or junction, or on its label, takes it out.
         map.on('contextmenu', e => {
@@ -713,6 +858,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             map.remove()
             mapRef.current = null
             layerRef.current = null
+            overlayRef.current = null
             tileRef.current = null
         }
     }, [onMapClick])
@@ -725,12 +871,16 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         if (!features.baseMap && map.hasLayer(tiles)) tiles.remove()
     }, [features.baseMap])
 
-    // Redraw everything when the document, selection, mode or draft changes.
+    // The network drawing: drawn again when the network, the zoom or a toggle changes (or a record left out is kept, see
+    // `keep`); the selection, the mode and the drafts only change the overlay drawn over it (`drawOverlay`).
     useEffect(() => {
         const map = mapRef.current
         const layer = layerRef.current
         if (!map || !layer) return
         layer.clearLayers()
+        const kept = new Set(keep.split(' ').filter(Boolean))
+        /** What the toggles leave out, kept or not (`Drawn.hidden`). */
+        const hidden = new Set<string>()
         // "Planned" off: planned circuits are left out of the drawing (and of the lane spread); planned sites and connections are skipped below.
         // "Below 500 kV" / "Below 230 kV" off: circuits running below that voltage (energized, else rated; unknown voltages stay)
         // are left out, and so are sites without a yard at that voltage or higher (sites without yards too), unless a circuit
@@ -751,18 +901,19 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             if (site) sitesWithCircuits.add(site)
         }
         const lowSite = (groupId: string) => floorKv > 0 && !sitesWithCircuits.has(groupId)
-            && !ed.doc.substations.some(y => y.groupId === groupId && voltageKv(y.voltage) >= floorKv)
-        // a line junction whose circuits are all left out goes too
-        const hiddenJunctions = new Set(ed.doc.junctions.filter(j => {
-            const ends = ed.doc.connections.filter(c => c.junction.id === j.id).flatMap(c => c.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT).map(n => n.id))
-            return ends.length > 0 && ends.every(id => !shownCircuits.has(id)) && !(ed.selection?.collection === 'junctions' && ed.selection.id === j.id)
-        }).map(j => j.id))
+            && !yardsOfSite(ed.doc, groupId).some(y => voltageKv(y.voltage) >= floorKv)
+        // a line junction whose circuits are all left out goes too (unless kept)
+        for (const j of ed.doc.junctions) {
+            const ends = connectionsAt(ed.doc, j.id).flatMap(c => c.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT).map(n => n.id))
+            if (ends.length > 0 && ends.every(id => !shownCircuits.has(id))) hidden.add(j.id)
+        }
+        const hiddenJunctions = new Set([...hidden].filter(id => !kept.has(id)))
         // Site extensions (`extensionOf`): an extension whose marker would sit within EXTENSION_GROUP_PX of its parent's (zoomed
         // out) is drawn with it: it takes the parent's position, so its other lines run to the parent; its own marker is left out
         // and the parent's label lists it; circuits and paths between the two are left out.
         const groupedInto = new Map<string, string>()
         for (const g of shown.substationGroups) {
-            const parent = g.extensionOf ? shown.substationGroups.find(p => p.id === g.extensionOf) : undefined
+            const parent = recordById(shown.substationGroups, g.extensionOf)
             if (parent && map.latLngToContainerPoint(toLatLng(g.coords)).distanceTo(map.latLngToContainerPoint(toLatLng(parent.coords))) < EXTENSION_GROUP_PX) groupedInto.set(g.id, parent.id)
         }
         // A line junction whose circle would run into the marker of a site it is linked to by a straight path (zoomed out, e.g.
@@ -772,8 +923,8 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         {
             const detailNow = mapDetailScale(map.getZoom())
             const spacing = PARALLEL_SPACING_PX * detailNow
-            const pathsAt = (id: string) => shown.paths.filter(p => p.from?.id === id || p.to?.id === id)
-            const lanes = (pathId: string) => shown.circuits.filter(c => c.pathId === pathId).length
+            const pathsAt = (id: string) => pathsEndingAt(shown, id)
+            const lanes = (pathId: string) => circuitsOnPath(shown, pathId).length
             for (const j of shown.junctions) {
                 if (j.groupId || hiddenJunctions.has(j.id)) continue
                 const at = pathsAt(j.id)
@@ -785,7 +936,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                     if (p.waypoints.length) continue
                     const other = p.from?.id === j.id ? p.to : p.from
                     const site = siteOfRef(shown, other)
-                    const g = site ? shown.substationGroups.find(x => x.id === (groupedInto.get(site) ?? site)) : undefined
+                    const g = site ? recordById(shown.substationGroups, groupedInto.get(site) ?? site) : undefined
                     if (!g) continue
                     const siteRadius = Math.max(SITE_MARKER_MIN_PX, SITE_MARKER_PX[siteSize(ed.doc, g.id).size] * detailNow) / 2
                     const gap = jPx.distanceTo(map.latLngToContainerPoint(toLatLng(g.coords))) - radius - siteRadius
@@ -797,40 +948,16 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         /** The site a site (or a line junction drawn with a site) is drawn as. */
         const siteRoot = (id: string) => groupedInto.get(id) ?? id
         const doc = groupedInto.size ? groupedView(shown, groupedInto) : shown
-        const sel = ed.selection
-        const draggable = mode === 'select'
-        drawnRef.current = {
-            markers: new Map(),
+        const draggable = modeRef.current === 'select'
+        const drawn: Drawn = {
+            ...emptyDrawn(),
             drawnAs: (place: string) => place.startsWith('G:') ? `G:${siteRoot(place.slice(2))}` : groupedInto.has(place.slice(2)) ? `G:${groupedInto.get(place.slice(2))}` : place,
+            hidden,
+            draggable,
         }
-        const draftEndpointIds = new Set<string>()
-        if (mode === 'addPath') for (const end of [pathDraft.from, pathDraft.to]) if (end) draftEndpointIds.add(end.slice(2))
-        if (mode === 'addCircuit') for (const end of [draft.from, draft.to]) if (end) draftEndpointIds.add(end.slice(2))
-        if (mode === 'addLine') for (const id of lineDraftPlaces(doc, lineDraft)) draftEndpointIds.add(id)
-
-        // Clicking a line selects its path (parallel circuits overlap); the path panel drills down to circuits.
-        const selectedPathId = sel?.collection === 'paths' ? sel.id : sel?.collection === 'circuits' ? doc.circuits.find(c => c.id === sel.id)?.pathId : undefined
-        // A selected line highlights every one of its sections.
-        const selectedLineCircuits = new Set(sel?.collection === 'lines' ? doc.lines.find(l => l.id === sel.id)?.circuitIds ?? [] : [])
+        drawnRef.current = drawn
         const lineNamesByCircuit = new Map<string, string[]>()
         for (const l of doc.lines) for (const id of l.circuitIds) lineNamesByCircuit.set(id, [...(lineNamesByCircuit.get(id) ?? []), l.name])
-        const verticesDrawn = new Set<string>()
-        const drawVertex = (w: CoordinatesProps, i: number) => {
-            const selectedWp = wp?.selected === i
-            const icon = L.divIcon({className: '', html: `<div class="map-vertex ${selectedWp ? 'selected' : ''}" title="waypoint ${i + 1}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7]})
-            const m = L.marker(toLatLng(w), {icon, draggable: true, zIndexOffset: 1000})
-            m.on('click', ev => {
-                L.DomEvent.stopPropagation(ev)
-                updateWp({selected: i})
-            })
-            m.on('dragend', () => {
-                const ll = m.getLatLng()
-                const current = editedPath()
-                if (!current) return
-                if (setPath(current.waypoints.map((q, k) => k === i ? {latitude: Number(ll.lat.toFixed(6)), longitude: Number(ll.lng.toFixed(6))} : q))) updateWp({selected: i})
-            })
-            m.addTo(layer)
-        }
         // Circuits sharing a path are spread sideways: index within the (name-sorted) group decides the offset. Circuits
         // without a path are grouped by the places their two ends are attached at.
         const placeKey = (c: TransmissionCircuitRecord, end: string) => {
@@ -853,7 +980,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         const towerPos = new Map<string, Map<string, number>>()
         const pinnedPaths = new Set<string>()
         for (const [key, ids] of siblingsByPath) {
-            const circuits = ids.map(id => doc.circuits.find(c => c.id === id)!).filter(Boolean)
+            const circuits = ids.map(id => recordById(doc.circuits, id)!).filter(Boolean)
             const pos = towerLanePositions(circuits)
             siblingsByPath.set(key, [...ids].sort((a, b) => (pos.get(a) ?? 0) - (pos.get(b) ?? 0)))
             if (!key.startsWith('no-path:') && hasTowerHints(circuits)) {
@@ -862,30 +989,31 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             }
         }
         // paths without circuits: dashed grey route so they stay visible and selectable (toggle "Paths without circuits"; the selected
-        // or edited one is always drawn)
+        // or edited one is always drawn, see `keep`)
         for (const p of doc.paths) {
-            if (ed.doc.circuits.some(c => c.pathId === p.id)) continue
-            const keep = (sel?.collection === 'paths' && sel.id === p.id) || wp?.pathId === p.id
-            if (!keep && (!features.unusedPaths || [p.from, p.to].some(r => { const site = siteOfRef(ed.doc, r); return !!site && lowSite(site) }))) continue
+            if (circuitsOnPath(ed.doc, p.id).length) continue
+            if (!features.unusedPaths || [p.from, p.to].some(r => { const site = siteOfRef(ed.doc, r); return !!site && lowSite(site) })) {
+                hidden.add(p.id)
+                if (!kept.has(p.id)) continue
+            }
             const pf = locationOfRef(doc, p.from), pt = locationOfRef(doc, p.to)
             const pts: L.LatLngExpression[] = []
             if (pf) pts.push(toLatLng(pf.coords))
             for (const w of p.waypoints) pts.push(toLatLng(w))
             if (pt) pts.push(toLatLng(pt.coords))
             if (pts.length === 0) continue
-            const selectedP = sel?.collection === 'paths' && sel.id === p.id
             // A path with a single point (one end, no waypoints) is a small dashed ring there, still selectable.
             if (pts.length === 1) {
-                const ring = L.circleMarker(pts[0], {radius: 7, color: selectedP ? '#ffd21f' : '#8b949e', weight: selectedP ? 3 : 2, dashArray: '3 3', fill: true, fillOpacity: 0})
+                const ring = L.circleMarker(pts[0], {radius: 7, color: '#8b949e', weight: 2, dashArray: '3 3', fill: true, fillOpacity: 0})
                 ring.bindTooltip(`${p.name} · no circuits · only one end`, {sticky: true, className: 'map-label'})
                 ring.on('click', e => {
                     L.DomEvent.stopPropagation(e)
                     if (modeRef.current === 'select') edRef.current.select({collection: 'paths', id: p.id})
                 })
                 ring.addTo(layer)
+                drawn.unusedPaths.set(p.id, {pts: [ring.getLatLng()], ring})
                 continue
             }
-            if (selectedP) L.polyline(pts, {color: '#ffd21f', weight: 9, opacity: .9, interactive: false}).addTo(layer)
             const line = L.polyline(pts, {color: '#8b949e', weight: 2.5, opacity: .9, dashArray: '8 6'})
             line.bindTooltip(`${p.name} · no circuits`, {sticky: true, className: 'map-label'})
             line.on('click', e => {
@@ -895,10 +1023,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 else if (modeRef.current === 'splitPath') onMapClick(e.latlng)
             })
             line.addTo(layer)
-            if (mode === 'editWaypoints' && wp?.pathId === p.id && !verticesDrawn.has(p.id)) {
-                verticesDrawn.add(p.id)
-                p.waypoints.forEach((w, i) => drawVertex(w, i))
-            }
+            drawn.unusedPaths.set(p.id, {pts: line.getLatLngs() as L.LatLng[]})
         }
 
         // Junctions that are not part of a site: circuit lanes stop at the edge of the junction's area, their "ports", and the
@@ -917,16 +1042,25 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         }
         // Zoomed out, sites and the spacing of parallel lanes shrink together, so a smaller site still covers its lanes.
         const detail = mapDetailScale(map.getZoom())
-        /** A circuit's route: its attached ends (a loose end falls back to its path's end, so detached circuits stay visible) and the path's waypoints. */
+        /**
+         * A circuit's route: its attached ends (a loose end falls back to its path's end, so detached circuits stay visible)
+         * and the path's waypoints. Worked out once per drawing.
+         */
+        const routes = new Map<string, { route?: TransmissionPathRecord; pts: L.LatLngExpression[]; looseEnd: boolean }>()
         const circuitRoute = (c: TransmissionCircuitRecord) => {
-            const route = doc.paths.find(p => p.id === c.pathId)
-            const from = endLocation(doc, c.id, CIRCUIT_END_FROM) ?? locationOfRef(doc, route?.from)
-            const to = endLocation(doc, c.id, CIRCUIT_END_TO) ?? locationOfRef(doc, route?.to)
+            const known = routes.get(c.id)
+            if (known) return known
+            const route = recordById(doc.paths, c.pathId)
+            const fromEnd = endLocation(doc, c.id, CIRCUIT_END_FROM), toEnd = endLocation(doc, c.id, CIRCUIT_END_TO)
+            const from = fromEnd ?? locationOfRef(doc, route?.from)
+            const to = toEnd ?? locationOfRef(doc, route?.to)
             const pts: L.LatLngExpression[] = []
             if (from) pts.push(toLatLng(from.coords))
             for (const p of route?.waypoints ?? []) pts.push(toLatLng(p))
             if (to) pts.push(toLatLng(to.coords))
-            return {route, pts, waypoints: route?.waypoints ?? [], looseEnd: !endLocation(doc, c.id, CIRCUIT_END_FROM) || !endLocation(doc, c.id, CIRCUIT_END_TO)}
+            const out = {route, pts, looseEnd: !fromEnd || !toEnd}
+            routes.set(c.id, out)
+            return out
         }
         const {order: laneOrder, shift: laneShift} = layoutLanes(doc, siblingsByPath, ringJunctions, connByEnd, ringOf, laneGroup,
             c => circuitRoute(c).pts.map(ll => map.latLngToLayerPoint(L.latLng(ll))), pinnedPaths, (key, id) => towerPos.get(key)?.get(id))
@@ -981,15 +1115,15 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         // marker is drawn at least that wide so the lane ends sit under it.
         const siteCover = new Map<string, number>()
         for (const c of doc.circuits) {
-            const route = doc.paths.find(p => p.id === c.pathId)
+            const route = recordById(doc.paths, c.pathId)
             const reach = Math.abs(offsetOf(c)) + weightOf(c) / 2
             for (const end of [CIRCUIT_END_FROM, CIRCUIT_END_TO]) {
                 const conn = connByEnd.get(`${c.id}:${end}`)
                 const ref = conn ? conn.junction : end === CIRCUIT_END_FROM ? route?.from : route?.to
                 const siteId = !ref ? undefined
                     : ref.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? ref.id
-                        : ref.kind === ConnectionJunctionKind.SUBSTATION ? doc.substations.find(y => y.id === ref.id)?.groupId
-                            : groupedInto.get(ref.id) ?? doc.junctions.find(j => j.id === ref.id)?.groupId
+                        : ref.kind === ConnectionJunctionKind.SUBSTATION ? recordById(doc.substations, ref.id)?.groupId
+                            : groupedInto.get(ref.id) ?? recordById(doc.junctions, ref.id)?.groupId
                 if (siteId) siteCover.set(siteRoot(siteId), Math.max(siteCover.get(siteRoot(siteId)) ?? 0, reach))
             }
         }
@@ -999,7 +1133,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         const areaRadius = new Map<string, number>()
         for (const j of ringJunctions.values()) areaRadius.set(j.id, JUNCTION_RING_MIN_PX * detail)
         for (const c of doc.circuits) {
-            const route = doc.paths.find(p => p.id === c.pathId)
+            const route = recordById(doc.paths, c.pathId)
             const reach = Math.abs(offsetOf(c)) + weightOf(c) / 2 + 1
             for (const end of [CIRCUIT_END_FROM, CIRCUIT_END_TO]) {
                 const jid = ringOf(c.id, end, route)
@@ -1009,6 +1143,12 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         // Connections drawn inside the junction circles (toggle "Planned" hides planned ones), each with its circuit ends.
         const drawnConnections = doc.connections.filter(conn => conn.scope === ConnectionScope.TRANSMISSION && conn.junction.kind === ConnectionJunctionKind.TRANSMISSION_JUNCTION
             && ringJunctions.has(conn.junction.id) && (features.planned || !conn.planned))
+        const drawnConnectionsAt = new Map<string, ConnectionRecord[]>()
+        for (const conn of drawnConnections) {
+            const at = drawnConnectionsAt.get(conn.junction.id)
+            if (at) at.push(conn)
+            else drawnConnectionsAt.set(conn.junction.id, [conn])
+        }
         const endKeys = (conn: ConnectionRecord) => conn.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT).map(n => `${n.id}:${n.terminal}`)
         // Each junction's circle and connectors (layoutJunction): parallel connectors keep the lane spacing, and the circle
         // grows where they, or the lanes of different paths, would otherwise touch. Merged far out there are no connectors.
@@ -1027,7 +1167,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             }
             for (const [jid, arrivals] of arrivalsAt) {
                 const center = map.latLngToLayerPoint(toLatLng(ringJunctions.get(jid)!.coords))
-                const conns = drawnConnections.filter(c => c.junction.id === jid).map(c => ({id: c.id, keys: endKeys(c)}))
+                const conns = (drawnConnectionsAt.get(jid) ?? []).map(c => ({id: c.id, keys: endKeys(c)}))
                 // zoomed out (lanes not at full spacing) the circle keeps its size: connectors may overlap there
                 const fit = layoutJunction(center, areaRadius.get(jid)!, arrivals, conns, PARALLEL_SPACING_PX * detail, detail >= 1)
                 areaRadius.set(jid, fit.radius)
@@ -1040,7 +1180,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         for (const unit of units) {
             const c = unit.circuits[0]
             const merged = unit.circuits.length > 1
-            const {route, pts, waypoints} = circuitRoute(c)
+            const {route, pts} = circuitRoute(c)
             const looseEnd = unit.circuits.some(x => circuitRoute(x).looseEnd)
             const weight = unit.weight
             // A planned circuit is dotted (round dots, spaced by the line weight) in a dull version of its voltage colour.
@@ -1072,9 +1212,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 ports.set(`${c.id}:${end}`, {point: cut.port, dir: cut.dir, color, weight, junctionId: jid})
             }
             const drawPts = px.map(pt => map.layerPointToLatLng(pt))
-            const selected = sel?.collection === 'circuits' && unit.circuits.some(x => x.id === sel.id)
-            const onSelectedPath = selected || (selectedPathId !== undefined && c.pathId === selectedPathId) || unit.circuits.some(x => selectedLineCircuits.has(x.id))
-            if (onSelectedPath) L.polyline(drawPts, {color: selected ? '#ffd21f' : '#ffe680', weight: weight + (selected ? 7 : 4), opacity: .9, interactive: false}).addTo(layer)
+            drawn.units.push({pts: drawPts, weight, circuitIds: unit.circuits.map(x => x.id), pathId: c.pathId})
             const lineNames = merged ? undefined : lineNamesByCircuit.get(c.id)
             // Drawn in the colour of the voltage the circuit is energized at; when that differs from its rated voltage a dotted overlay in the rated colour shows the difference.
             const reVolted = !merged && !!c.energizedVoltage && !!c.voltage && c.energizedVoltage !== c.voltage && !c.planned
@@ -1086,8 +1224,6 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             })
             if (merged) line.bindTooltip(`${unit.circuits.length} circuits · ${esc(c.energizedVoltage ?? c.voltage ?? 'no voltage')}${c.planned ? ' · planned' : ''}${route ? ` · ${esc(route.name)}` : ' · no path'}<br>${unit.circuits.map(x => esc(x.name)).join('<br>')}`, {sticky: true, className: 'map-label'})
             else line.bindTooltip(`${c.name}${c.planned ? ' · planned' : ''}${c.voltage ? ` · ${c.voltage}` : ''}${reVolted ? ` · energized ${c.energizedVoltage}` : ''}${c.bundle ? ` · ${c.bundle}x` : ''}${route ? ` · ${route.name}` : ' · no path'}${lineNames ? ` · line ${lineNames.join(', ')}` : ' · ⚠ no line'}`, {sticky: true, className: 'map-label'})
-            const editing = !!route && mode === 'editWaypoints' && wp?.pathId === route.id && !verticesDrawn.has(route.id)
-            if (editing) verticesDrawn.add(route.id)
             line.on('click', e => {
                 L.DomEvent.stopPropagation(e)
                 if (modeRef.current === 'select') edRef.current.select(route ? {collection: 'paths', id: route.id} : {collection: 'circuits', id: c.id})
@@ -1097,7 +1233,6 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             })
             line.addTo(layer)
             if (reVolted) L.polyline(drawPts, {color: voltageColor(c.voltage), weight, opacity: .95, dashArray: '1 9', lineCap: 'round', interactive: false}).addTo(layer)
-            if (editing) waypoints.forEach((w, i) => drawVertex(w, i))
         }
 
         /** A click on a junction (its area, a connector inside it or its handle): picks it as an end, or selects it. */
@@ -1124,16 +1259,11 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
 
         // The junction areas (toggle "Junction areas"): the circle the lanes stop on, in a pane under the lines.
         if (features.junctions) for (const j of ringJunctions.values()) {
-            const selected = sel?.collection === 'junctions' && sel.id === j.id
-            const picked = draftEndpointIds.has(j.id)
-            const area = L.circleMarker(toLatLng(j.coords), {
-                radius: areaRadius.get(j.id)!,
-                pane: 'junctionAreas', color: selected || picked ? '#ffd21f' : JUNCTION_COLOR, weight: selected ? 3 : picked ? 2.5 : 1, opacity: selected || picked ? 1 : .8,
-                dashArray: picked && !selected ? '4 3' : undefined, fillColor: JUNCTION_COLOR, fillOpacity: JUNCTION_FILL_OPACITY,
-            })
+            const area = L.circleMarker(toLatLng(j.coords), {radius: areaRadius.get(j.id)!, pane: 'junctionAreas', ...AREA_STYLE, fillColor: JUNCTION_COLOR, fillOpacity: JUNCTION_FILL_OPACITY})
             area.bindTooltip(esc(j.name ?? j.id), {sticky: true, className: 'map-label'})
             onJunction(area, j.id)
             area.addTo(layer)
+            drawn.areas.set(j.id, area)
         }
 
         // Inside the junctions (layoutJunction): a connection joining two circuit ends is one connector between their ports,
@@ -1141,7 +1271,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         // more is a spoke from each port to a dot (lines crossing without a dot are not joined); a circuit end with no
         // connection is a short stub ending in an open circle. Clicking any of them selects the junction (its panel lists the
         // connections), also while the areas are hidden; a connection selected in the panel is highlighted here.
-        const circuitName = (id: string) => doc.circuits.find(x => x.id === id)?.name ?? id
+        const circuitName = (id: string) => recordById(doc.circuits, id)?.name ?? id
         const joined = new Set<string>()
         for (const conn of drawnConnections) {
             const keys = endKeys(conn)
@@ -1149,17 +1279,18 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             const drawing = junctionDrawings.get(conn.id)
             const pieces = (drawing?.lines ?? []).map(l => ({pts: l.pts, port: ports.get(l.key)})).filter((p): p is { pts: L.Point[]; port: RingPort } => !!p.port)
             if (!pieces.length) continue
-            const selectedConn = sel?.collection === 'connections' && sel.id === conn.id
             const tip = `${esc(conn.name ?? conn.id)}${conn.planned ? ' · planned' : ''} · ${keys.map(k => esc(circuitName(k.slice(0, k.lastIndexOf(':'))))).join(' + ')}`
 
+            const drawnPieces: { pts: L.LatLng[]; weight: number }[] = []
             for (const piece of pieces) {
                 const ll = toLL(piece.pts)
-                if (selectedConn) L.polyline(ll, {color: '#ffd21f', weight: piece.port.weight + 6, opacity: .9, interactive: false}).addTo(layer)
+                drawnPieces.push({pts: ll, weight: piece.port.weight})
                 const line = L.polyline(ll, {color: piece.port.color, weight: piece.port.weight, opacity: .95, lineCap: 'round', dashArray: conn.planned ? `1 ${piece.port.weight * 2 + 3}` : undefined})
                 line.bindTooltip(tip, {sticky: true, className: 'map-label'})
                 onJunction(line, conn.junction.id)
                 line.addTo(layer)
             }
+            drawn.connections.set(conn.id, drawnPieces)
             if (drawing?.dot) {
                 const node = L.circleMarker(map.layerPointToLatLng(drawing.dot), {radius: Math.max(3, pieces[0].port.weight / 2 + 1.5), stroke: false, fillColor: pieces[0].port.color, fillOpacity: 1})
                 node.bindTooltip(tip, {sticky: true, className: 'map-label'})
@@ -1178,19 +1309,25 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
 
         /**
          * A site / junction marker. `label` is shown permanently when `showLabel` is set, otherwise only `hoverHtml` (on
-         * mouseover) reveals what is there. `iconHtml` replaces the round marker (junction rings).
+         * mouseover, put together then) reveals what is there. `iconHtml` replaces the round marker (junction rings).
          */
-        const marker = (coords: CoordinatesProps, cls: string, text: string, size: number, label: string, onClick: () => void, onDrag: (c: CoordinatesProps) => void, hoverHtml?: string, showLabel = true,
+        const marker = (coords: CoordinatesProps, cls: string, text: string, size: number, label: string, onClick: () => void, onDrag: (c: CoordinatesProps) => void, hoverHtml?: () => string, showLabel = true,
                         iconHtml?: { html: string; className: string }, onRightClick?: () => void) => {
             const icon = L.divIcon({className: iconHtml?.className ?? '', html: iconHtml?.html ?? `<div class="map-marker ${cls}">${text}</div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2]})
             const m = L.marker(toLatLng(coords), {icon, draggable})
             // A hidden label still appears while hovering.
-            m.bindTooltip(label, {permanent: showLabel, direction: 'right', offset: [size / 2 + 2, 0], className: 'map-label'})
+            m.bindTooltip(label, markerLabel(size, showLabel))
             if (hoverHtml) {
-                const popup = L.popup({closeButton: false, autoPan: false, offset: [0, -size / 2], className: 'map-popup'}).setContent(hoverHtml)
-                m.on('mouseover', () => popup.setLatLng(m.getLatLng()).openOn(map))
-                m.on('mouseout', () => map.closePopup(popup))
-                m.on('dragstart', () => map.closePopup(popup))
+                let popup: L.Popup | undefined
+                const close = () => {
+                    if (popup) map.closePopup(popup)
+                }
+                m.on('mouseover', () => {
+                    if (!popup) popup = L.popup({closeButton: false, autoPan: false, offset: [0, -size / 2], className: 'map-popup'})
+                    popup.setContent(hoverHtml()).setLatLng(m.getLatLng()).openOn(map)
+                })
+                m.on('mouseout', close)
+                m.on('dragstart', close)
             }
             m.on('click', e => {
                 L.DomEvent.stopPropagation(e)
@@ -1205,7 +1342,8 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 onDrag({latitude: Number(ll.lat.toFixed(6)), longitude: Number(ll.lng.toFixed(6))})
             })
             m.addTo(layer)
-            return m
+            const drawnMarker: DrawnMarker = {marker: m, label, size, permanent: showLabel}
+            return drawnMarker
         }
 
         // Sites are sized by what is inside them; when two are drawn too close, the smaller one's label gives way (it still shows on hover).
@@ -1213,8 +1351,18 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         const sized = doc.substationGroups.filter(g => !groupedInto.has(g.id)).map(g => ({g, ...siteSize(ed.doc, g.id), px: map.latLngToContainerPoint(toLatLng(g.coords))}))
         const LABEL_CLEARANCE_PX = 48
         const outranked = new Set<string>()
+        // each site against those in its cell of a LABEL_CLEARANCE_PX grid and the cells around it (no others are that close)
+        const cellOf = (px: L.Point) => [Math.floor(px.x / LABEL_CLEARANCE_PX), Math.floor(px.y / LABEL_CLEARANCE_PX)]
+        const cells = new Map<string, typeof sized>()
+        for (const s of sized) {
+            const [cx, cy] = cellOf(s.px)
+            const at = cells.get(`${cx},${cy}`)
+            if (at) at.push(s)
+            else cells.set(`${cx},${cy}`, [s])
+        }
         for (const a of sized) {
-            for (const b of sized) {
+            const [cx, cy] = cellOf(a.px)
+            for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const b of cells.get(`${cx + dx},${cy + dy}`) ?? []) {
                 if (a === b) continue
                 if (Math.hypot(a.px.x - b.px.x, a.px.y - b.px.y) > LABEL_CLEARANCE_PX) continue
                 const rankA = SITE_SIZE_RANK[a.size], rankB = SITE_SIZE_RANK[b.size]
@@ -1222,14 +1370,20 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 if (bWins) outranked.add(a.g.id)
             }
         }
+        // the extensions drawn with each site
+        const groupedSites = new Map<string, SubstationGroupRecord[]>()
+        for (const x of doc.substationGroups) {
+            const into = groupedInto.get(x.id)
+            if (into) groupedSites.set(into, [...(groupedSites.get(into) ?? []), x])
+        }
         for (const {g, size, circuits, points} of sized) {
-            const selected = sel?.collection === 'substationGroups' && sel.id === g.id
-            if (((g.planned && !features.planned) || lowSite(g.id)) && !selected) continue
-            // a grouped extension selected or picked shows on its parent's marker
-            const members = [g.id, ...[...groupedInto].filter(([, parent]) => parent === g.id).map(([id]) => id)]
-            const selectedHere = (sel?.collection === 'substationGroups' || sel?.collection === 'junctions') && members.includes(sel.id)
-            const cls = `site size-${size} ${selectedHere ? 'selected' : ''} ${members.some(id => draftEndpointIds.has(id)) ? 'pick' : ''} ${g.planned ? 'planned' : ''}`
-            const yards = doc.substations.filter(s => s.groupId === g.id)
+            if ((g.planned && !features.planned) || lowSite(g.id)) {
+                hidden.add(g.id)
+                if (!kept.has(g.id)) continue
+            }
+            // selected or picked (the overlay): a grouped extension shows on its parent's marker
+            const cls = `site size-${size} ${g.planned ? 'planned' : ''}`
+            const yards = [...yardsOfSite(doc, g.id)]
             // Generation site: an icon-sized "G", then (details only) one lettered badge per generation type.
             const genIcons = (site: SubstationGroupRecord) => site.generation
                 ? `<span class="map-gen-row"><span class="map-gen-badge" style="background:${GENERATION_SITE_COLOR}" title="Generation site (power plant / producer)">G</span>`
@@ -1240,10 +1394,10 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 : ''
             // Extensions drawn with this site (zoomed out): one line each below its own, code, yard symbols and generation icons
             // (details: its name too).
-            const grouped = doc.substationGroups.filter(x => groupedInto.get(x.id) === g.id).sort((a, b) => a.groupName.localeCompare(b.groupName))
+            const grouped = [...(groupedSites.get(g.id) ?? [])].sort((a, b) => a.groupName.localeCompare(b.groupName))
             const extensionLines = grouped.map(x => {
                 const planned = x.planned || g.planned
-                return `<div class="map-site-name map-site-ext"><span>${esc(x.groupName)}</span>${yardSymbols(doc.substations.filter(s => s.groupId === x.id), planned)}${genIcons(x)}`
+                return `<div class="map-site-name map-site-ext"><span>${esc(x.groupName)}</span>${yardSymbols([...yardsOfSite(doc, x.id)], planned)}${genIcons(x)}`
                     + `${details && x.name && x.name !== x.groupName ? `<span class="map-site-title">${esc(x.name)}</span>` : ''}${x.planned ? '<span class="muted">(planned)</span>' : ''}</div>`
             }).join('')
             // One centred line: code, the yards' symbols (compact only), the generation icons. Details add the site name and one line per yard below.
@@ -1254,54 +1408,58 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             // the size class scaled for the zoom, but never narrower than the lanes running in (plus the white rim)
             const cover = siteCover.get(g.id)
             const markerPx = Math.round(Math.max(SITE_MARKER_MIN_PX, SITE_MARKER_PX[size] * detail, cover !== undefined ? 2 * cover + 5 : 0))
-            const showSiteLabel = selected || draftEndpointIds.has(g.id) || (features.labels && !outranked.has(g.id))
-            const sizeNote = `<div class="muted">${size} site · ${circuits} circuit${circuits === 1 ? '' : 's'}, ${points} point${points === 1 ? '' : 's'} (4 per 500 kV, 2 per 230 kV, 1 below)</div>`
-            const siteJunction = doc.junctions.find(j => j.groupId === g.id)
-            const junctionNodes = siteJunction ? doc.connections.filter(c => c.junction.kind === 'TRANSMISSION_JUNCTION' && c.junction.id === siteJunction.id).length : 0
-            const junctionNote = siteJunction ? `<div class="muted">junction <b>${esc(siteJunction.name ?? siteJunction.id)}</b> · ${junctionNodes} node${junctionNodes === 1 ? '' : 's'}</div>` : ''
-            const genUnits = generationUnitsOf(doc, g.id)
-            const genNote = g.generation ? `<div><span style="color:${GENERATION_SITE_COLOR};font-weight:700">G</span> generation site${(g.generationTypes ?? []).length ? `: ${(g.generationTypes ?? []).map(t => esc(GENERATION_LABELS[t] ?? t)).join(', ')}` : ''}</div>`
-                + (genUnits.length ? `<div class="muted">${genUnits.length} unit${genUnits.length === 1 ? '' : 's'} · <b>${esc(capacityText(genUnits))}</b></div>` : '') : ''
-            const parentSite = g.extensionOf ? doc.substationGroups.find(x => x.id === g.extensionOf) : undefined
-            const extensions = extensionsOf(doc, g.id)
-            const extensionNote = (parentSite ? `<div class="muted">extension of <b>${esc(parentSite.groupName)}</b></div>` : '')
-                + (extensions.length ? `<div class="muted">extensions: ${extensions.map(x => `<b>${esc(x.groupName)}</b>${x.name && x.name !== x.groupName ? ` ${esc(x.name)}` : ''}`).join(', ')}${grouped.length ? ' (drawn here at this zoom)' : ''}</div>` : '')
-            const summary = `<strong>${esc(g.groupName)}${g.name && g.name !== g.groupName ? ` · ${esc(g.name)}` : ''}</strong>` + genNote + extensionNote + (yards.length
-                ? `<table class="map-summary"><tr><th>Yard</th><th>Arrangement</th><th>Buses</th><th>Bays</th><th>Take-offs</th></tr>` + yards.map(y =>
-                    `<tr><td>${voltageSymbolSvg(y.voltage, y.planned || g.planned)} <b>${esc(y.yardName)}</b> <span class="muted">${esc(y.voltage)}</span></td><td>${esc(y.arrangement ?? '–')}</td>` +
-                    `<td>${doc.buses.filter(b => b.substationId === y.id).length}</td><td>${doc.bays.filter(b => b.substationId === y.id).length}</td>` +
-                    `<td>${doc.takeOffs.filter(t => t.substationId === y.id).length}</td></tr>`).join('') + `</table>`
-                : '<div class="muted">No yards yet</div>')
-            drawnRef.current.markers.set(`G:${g.id}`, marker(g.coords, markerPx < 12 ? `${cls} tiny` : cls, '', markerPx, label, () => {
+            const showSiteLabel = features.labels && !outranked.has(g.id)
+            /** The hover summary, put together when the pointer gets there. */
+            const summary = () => {
+                const sizeNote = `<div class="muted">${size} site · ${circuits} circuit${circuits === 1 ? '' : 's'}, ${points} point${points === 1 ? '' : 's'} (4 per 500 kV, 2 per 230 kV, 1 below)</div>`
+                const siteJunction = junctionsOfSite(doc, g.id)[0]
+                const junctionNodes = siteJunction ? connectionsAt(doc, siteJunction.id).filter(c => c.junction.kind === 'TRANSMISSION_JUNCTION').length : 0
+                const junctionNote = siteJunction ? `<div class="muted">junction <b>${esc(siteJunction.name ?? siteJunction.id)}</b> · ${junctionNodes} node${junctionNodes === 1 ? '' : 's'}</div>` : ''
+                const genUnits = generationUnitsOf(doc, g.id)
+                const genNote = g.generation ? `<div><span style="color:${GENERATION_SITE_COLOR};font-weight:700">G</span> generation site${(g.generationTypes ?? []).length ? `: ${(g.generationTypes ?? []).map(t => esc(GENERATION_LABELS[t] ?? t)).join(', ')}` : ''}</div>`
+                    + (genUnits.length ? `<div class="muted">${genUnits.length} unit${genUnits.length === 1 ? '' : 's'} · <b>${esc(capacityText(genUnits))}</b></div>` : '') : ''
+                const parentSite = recordById(doc.substationGroups, g.extensionOf)
+                const extensions = extensionsOf(doc, g.id)
+                const extensionNote = (parentSite ? `<div class="muted">extension of <b>${esc(parentSite.groupName)}</b></div>` : '')
+                    + (extensions.length ? `<div class="muted">extensions: ${extensions.map(x => `<b>${esc(x.groupName)}</b>${x.name && x.name !== x.groupName ? ` ${esc(x.name)}` : ''}`).join(', ')}${grouped.length ? ' (drawn here at this zoom)' : ''}</div>` : '')
+                return `<strong>${esc(g.groupName)}${g.name && g.name !== g.groupName ? ` · ${esc(g.name)}` : ''}</strong>` + genNote + extensionNote + (yards.length
+                    ? `<table class="map-summary"><tr><th>Yard</th><th>Arrangement</th><th>Buses</th><th>Bays</th><th>Take-offs</th></tr>` + yards.map(y =>
+                        `<tr><td>${voltageSymbolSvg(y.voltage, y.planned || g.planned)} <b>${esc(y.yardName)}</b> <span class="muted">${esc(y.voltage)}</span></td><td>${esc(y.arrangement ?? '–')}</td>` +
+                        `<td>${ofYard(doc.buses, y.id).length}</td><td>${ofYard(doc.bays, y.id).length}</td>` +
+                        `<td>${ofYard(doc.takeOffs, y.id).length}</td></tr>`).join('') + `</table>`
+                    : '<div class="muted">No yards yet</div>') + sizeNote + junctionNote
+            }
+            drawn.markers.set(`G:${g.id}`, marker(g.coords, markerPx < 12 ? `${cls} tiny` : cls, '', markerPx, label, () => {
                 if (modeRef.current === 'addLine') changeLineDraft(lineDraftSiteClick(edRef.current.doc, lineDraftRef.current, g.id))
                 else if (modeRef.current === 'addCircuit') setDraft(d => pickDraftEnd(d, `G:${g.id}`))
                 else if (modeRef.current === 'addPath') setPathDraft(d => pickDraftEnd(d, `G:${g.id}`))
                 else if (modeRef.current === 'select') edRef.current.select({collection: 'substationGroups', id: g.id})
             // a right-click takes the site out of the draft, or what is drawn with it (an extension, a junction next to it)
-            }, coords => edRef.current.apply(moveSiteOps(edRef.current.doc, g, coords)), summary + sizeNote + junctionNote, showSiteLabel, undefined, () => dropDrawn(`G:${g.id}`)))
+            }, coords => edRef.current.apply(moveSiteOps(edRef.current.doc, g, coords)), summary, showSiteLabel, undefined, () => dropDrawn(`G:${g.id}`)))
         }
         for (const j of doc.junctions) {
             // A site junction is part of its site: the site marker stands for it (the site panel and "+ Circuit" reach it).
             if (j.groupId || hiddenJunctions.has(j.id) || groupedInto.has(j.id)) continue
-            const selected = sel?.collection === 'junctions' && sel.id === j.id
-            // Size tier from the busiest path ending here (see junctionSize in mapUtil.ts), named in the hover summary; the symbol has one size.
-            const {size: jSize, circuits: jCircuits} = junctionSize(doc, j.id)
-            const cls = `junction size-${jSize} ${selected ? 'selected' : ''} ${draftEndpointIds.has(j.id) ? 'pick' : ''}`
-            const conns = doc.connections.filter(c => c.junction.kind === 'TRANSMISSION_JUNCTION' && c.junction.id === j.id)
-            const ends = conns.flatMap(c => c.nodes.map(n => ({conn: c, circuit: doc.circuits.find(x => x.id === n.id), end: n.terminal})))
-            const label = `<div class="map-site-name">${esc(j.name ?? j.id)}</div>` + conns.map(c => badge(c.name ?? c.id, c.voltage ?? doc.circuits.find(x => x.id === c.nodes[0]?.id)?.voltage)).join('')
-            const summary = `<strong>${esc(j.name ?? j.id)}</strong> <span class="muted">${j.coords.latitude.toFixed(5)}, ${j.coords.longitude.toFixed(5)}</span>` + (conns.length
-                ? `<table class="map-summary"><tr><th>Connection</th><th>Circuit ends</th></tr>` + conns.map(c =>
-                    `<tr><td><b>${esc(c.name ?? c.id)}</b>${c.voltage ? `<br><span style="color:${voltageColor(c.voltage)}">${esc(c.voltage)}</span>` : ''}</td><td>${c.nodes.map(n => {
-                        const circ = doc.circuits.find(x => x.id === n.id)
-                        return `<span style="color:${voltageColor(circ?.energizedVoltage ?? circ?.voltage)}">■</span> ${esc(circ?.name ?? n.id)} <span class="muted">${esc(n.terminal ?? '')}</span>`
-                    }).join('<br>')}</td></tr>`).join('') + `</table><div class="muted">${conns.length} electrical node${conns.length === 1 ? '' : 's'}, ${ends.length} circuit end${ends.length === 1 ? '' : 's'}</div>` + `<div class="muted">${jSize} junction · busiest path ${jCircuits} circuit${jCircuits === 1 ? '' : 's'}</div>`
-                : '<div class="muted">No connections here yet</div>')
-            // Junctions stay quiet: the label is shown only while the junction is selected or picked as a circuit end; hovering reveals the summary.
-            const focused = selected || draftEndpointIds.has(j.id)
+            const conns = connectionsAt(doc, j.id).filter(c => c.junction.kind === 'TRANSMISSION_JUNCTION')
+            const label = `<div class="map-site-name">${esc(j.name ?? j.id)}</div>` + conns.map(c => badge(c.name ?? c.id, c.voltage ?? recordById(doc.circuits, c.nodes[0]?.id)?.voltage)).join('')
+            /** The hover summary, put together when the pointer gets there. */
+            const summary = () => {
+                // Size tier from the busiest path ending here (see junctionSize in mapUtil.ts), named in the hover summary; the symbol has one size.
+                const {size: jSize, circuits: jCircuits} = junctionSize(doc, j.id)
+                const ends = conns.reduce((n, c) => n + c.nodes.length, 0)
+                return `<strong>${esc(j.name ?? j.id)}</strong> <span class="muted">${j.coords.latitude.toFixed(5)}, ${j.coords.longitude.toFixed(5)}</span>` + (conns.length
+                    ? `<table class="map-summary"><tr><th>Connection</th><th>Circuit ends</th></tr>` + conns.map(c =>
+                        `<tr><td><b>${esc(c.name ?? c.id)}</b>${c.voltage ? `<br><span style="color:${voltageColor(c.voltage)}">${esc(c.voltage)}</span>` : ''}</td><td>${c.nodes.map(n => {
+                            const circ = recordById(doc.circuits, n.id)
+                            return `<span style="color:${voltageColor(circ?.energizedVoltage ?? circ?.voltage)}">■</span> ${esc(circ?.name ?? n.id)} <span class="muted">${esc(n.terminal ?? '')}</span>`
+                        }).join('<br>')}</td></tr>`).join('') + `</table><div class="muted">${conns.length} electrical node${conns.length === 1 ? '' : 's'}, ${ends} circuit end${ends === 1 ? '' : 's'}</div>` + `<div class="muted">${jSize} junction · busiest path ${jCircuits} circuit${jCircuits === 1 ? '' : 's'}</div>`
+                    : '<div class="muted">No connections here yet</div>')
+            }
+            // Junctions stay quiet: the label is shown only while the junction is selected or picked as a circuit end (the
+            // overlay); hovering reveals the summary.
             // No symbol: the area (behind the lines) shows the junction; an invisible handle in its middle drags it and shows the summary.
-            drawnRef.current.markers.set(`J:${j.id}`, marker(j.coords, cls, '', JUNCTION_HIT_PX, label, () => clickJunction(j.id),
-                coords => edRef.current.apply([{type: 'upsert', collection: 'junctions', record: {...j, coords}}]), summary, focused, {html: '<div class="junction-hit"></div>', className: ''}, () => rightClickJunction(j.id)))
+            drawn.markers.set(`J:${j.id}`, marker(j.coords, 'junction', '', JUNCTION_HIT_PX, label, () => clickJunction(j.id),
+                coords => edRef.current.apply([{type: 'upsert', collection: 'junctions', record: {...j, coords}}]), summary, false, {html: '<div class="junction-hit"></div>', className: ''}, () => rightClickJunction(j.id)))
         }
 
         // First draw: zoom just enough to cover the sites. Deferred like the invalidateSize above: the container has
@@ -1310,7 +1468,16 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             fitted.current = true
             setTimeout(() => fitSites(map, edRef.current.doc), 0)
         }
-    }, [ed.doc, ed.selection, mode, draft, wp, zoomTick, features.details, features.labels, features.junctions, features.unusedPaths, features.planned, features.lowVoltage, features.below500, pathDraft, lineDraft, changeLineDraft, onMapClick, setPath, updateWp, editedPath])
+        // the overlay on the new drawing; a selected record left out may have to be kept
+        drawOverlay()
+        syncKeep()
+    }, [ed.doc, keep, zoomTick, features.details, features.labels, features.junctions, features.unusedPaths, features.planned, features.lowVoltage, features.below500, changeLineDraft, onMapClick, drawOverlay, syncKeep])
+
+    // The selection, the mode and the drafts change the overlay only; the network drawing stays.
+    useEffect(() => {
+        drawOverlay()
+        syncKeep()
+    }, [ed.selection, mode, draft, pathDraft, lineDraft, wp, drawOverlay, syncKeep])
 
     /** Pans / zooms the map to a selected record. */
     const locate = useCallback((s: Selection) => {

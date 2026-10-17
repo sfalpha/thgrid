@@ -19,6 +19,7 @@ import {
     NETWORK_ID_PATTERN,
     sameNode,
 } from "./records";
+import {recordById} from "./lookup";
 
 export type NetworkOp =
     | { type: 'upsert'; collection: NetworkCollectionName; record: AnyNetworkRecord }
@@ -90,7 +91,7 @@ export function applyOps(doc: NetworkDocument, ops: NetworkOp[]): NetworkDocumen
 }
 
 export function findRecord<C extends NetworkCollectionName>(doc: NetworkDocument, collection: C, id: string): NetworkRecordOf<C> | undefined {
-    return (doc[collection] as NetworkRecordOf<C>[]).find(r => r.id === id)
+    return recordById(doc[collection] as NetworkRecordOf<C>[], id)
 }
 
 /**

@@ -6,15 +6,16 @@
  */
 import {NetworkDocument, SubstationGroupRecord} from "./records";
 import {NetworkOp} from "./ops";
+import {extensionSites, recordById} from "./lookup";
 
 /** The site a site extends, if any. */
 export function parentSiteOf(doc: NetworkDocument, site: SubstationGroupRecord): SubstationGroupRecord | undefined {
-    return site.extensionOf ? doc.substationGroups.find(g => g.id === site.extensionOf) : undefined
+    return recordById(doc.substationGroups, site.extensionOf)
 }
 
 /** The extensions of a site, by code. */
 export function extensionsOf(doc: NetworkDocument, groupId: string): SubstationGroupRecord[] {
-    return doc.substationGroups.filter(g => g.extensionOf === groupId).sort((a, b) => a.groupName.localeCompare(b.groupName))
+    return [...extensionSites(doc, groupId)].sort((a, b) => a.groupName.localeCompare(b.groupName))
 }
 
 /** Why `childId` cannot become an extension of `parentId` (undefined when it can). */

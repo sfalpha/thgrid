@@ -27,6 +27,7 @@ import {TransmissionVoltage, withinRating} from "../models/transmission.voltage"
 import {endpointToken} from "./naming";
 import {connectionVoltage} from "./migrate";
 import {NetworkOp} from "./ops";
+import {recordById} from "./lookup";
 
 /** The voltage a circuit runs at: its energized one, else its rated one. */
 export const effectiveVoltage = (c?: { energizedVoltage?: TransmissionVoltage; voltage?: TransmissionVoltage }): TransmissionVoltage | undefined => c?.energizedVoltage ?? c?.voltage
@@ -40,7 +41,7 @@ export function runningVoltagesAt(doc: NetworkDocument, conn: ConnectionRecord, 
     const skip = new Set(except)
     const circuits = conn.nodes
         .filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && !skip.has(n.id))
-        .map(n => doc.circuits.find(c => c.id === n.id))
+        .map(n => recordById(doc.circuits, n.id))
         .filter((c): c is TransmissionCircuitRecord => !!c && effectiveVoltage(c) !== undefined && effectiveVoltage(c) !== TransmissionVoltage.DE_ENERGIZED)
     const unique = circuits.filter((c, i) => circuits.findIndex(x => x.id === c.id) === i)
     return {voltages: [...new Set(unique.map(c => effectiveVoltage(c)!))], circuits: unique}

@@ -298,8 +298,9 @@ web/src/network/
 * `save(force)` – `POST …/save`; the shell asks before forcing when the
   working document has validation issues. `discard()` drops the journal and
   reloads. `exportJson()` downloads the working document.
-* `issues` – `validateNetworkDocument(doc)` recomputed on every change; the
-  count is shown in the toolbar and the list in a panel.
+* `issues` – `validateNetworkDocument(doc)` recomputed whenever the document
+  changes (not when the journal only acknowledges a batch); the count is shown
+  in the toolbar and the list in a panel.
 * `selection` – `{ collection, id }` shared by canvas and side panel.
 
 Every record form in the panels keeps a local draft and writes **one upsert
@@ -311,6 +312,19 @@ immediately.
 
 * Tiles: `https://tile.openstreetmap.org/{z}/{x}/{y}.png` with the required
   attribution; markers are Leaflet `divIcon`s (no image assets).
+* Drawing in two layers (`MapEditor.tsx`): the network (sites, junctions,
+  circuits, paths, connections) is drawn again only when the network, the zoom
+  or a *Map features* toggle changes; the selection, the mode and the drafts
+  change only the overlay drawn over it (`drawOverlay`): the selected path,
+  circuits, line or connection highlighted in a pane under the lines
+  (`highlights`, z-index 395), the `selected` / `pick` classes and the
+  shown labels of the selected and picked sites and junctions, the outline of
+  a selected or picked junction area, waypoint handles, and markers that
+  drag in select mode only. A record the toggles leave out (a junction whose
+  circuits are all hidden, a path without circuits, a planned or low-voltage
+  site) is still drawn while it is selected or its waypoints are edited
+  (`keep`, the one case where a selection draws the network again). The
+  hover summaries of sites and junctions are put together on hover.
 * Planned records (`planned: true`, a checkbox in the site, yard, take-off,
   circuit, line and connection panels and in the "New line" wizard) look
   unbuilt: a planned site marker is grey and dashed; the yard symbol of a

@@ -19,6 +19,7 @@ import {TemplateKind} from "../templates/template";
 import {validateTransformerWindings} from "../templates/validation";
 import {atPathEnd} from "./refs";
 import {takeOffCircuit, takeOffVoltage} from "./migrate";
+import {connectionOfEnd} from "./lookup";
 import {
     AnyNetworkRecord,
     CIRCUIT_END_FROM,
@@ -421,8 +422,7 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
     d.circuits.forEach((c, i) => {
         if (c.pathId === undefined) {
             // Without a path the map draws a circuit as a dashed line between its attached ends; with one end (or none) it cannot be drawn.
-            const attached = [CIRCUIT_END_FROM, CIRCUIT_END_TO].filter(end => d.connections.some(x => x.scope === ConnectionScope.TRANSMISSION
-                && x.nodes.some(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === c.id && n.terminal === end))).length
+            const attached = [CIRCUIT_END_FROM, CIRCUIT_END_TO].filter(end => connectionOfEnd(d, c.id, end)).length
             if (attached < 2) issues.push({
                 path: `circuits.${i}`, severity: 'warning',
                 message: `has no path and ${attached ? 'only one end' : 'no end'} attached: it cannot be drawn on the map (attach ${attached ? 'the other end' : 'both ends'} or give it a path)`,
@@ -434,7 +434,7 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
         // A circuit end that is connected somewhere must be connected where its path ends.
         for (const [end, pathEnd] of [[CIRCUIT_END_FROM, pth.from], [CIRCUIT_END_TO, pth.to]] as const) {
             if (!pathEnd) continue
-            const conn = d.connections.find(x => x.scope === ConnectionScope.TRANSMISSION && x.nodes.some(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === c.id && n.terminal === end))
+            const conn = connectionOfEnd(d, c.id, end)
             if (conn && !atPathEnd(d, conn.junction, pathEnd)) {
                 issues.push({path: `circuits.${i}`, message: `${end} end is connected at ${conn.junction.id} but the path "${pth.name}" ${end === CIRCUIT_END_FROM ? 'starts' : 'ends'} at ${pathEnd.id}`})
             }
@@ -630,11 +630,15 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
             if (n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && circuits.get(n.id)?.planned) warn(`connections.${i}.nodes.${k}`, `connection ${conn.name ?? conn.id} is built but joins the planned circuit ${circuits.get(n.id)!.name}`)
         })
     })
+    // the planned connections each circuit is joined in
+    const plannedJoins = new Map<string, ConnectionRecord[]>()
+    for (const conn of d.connections) {
+        if (!conn.planned) continue
+        for (const id of new Set(conn.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT).map(n => n.id))) plannedJoins.set(id, [...(plannedJoins.get(id) ?? []), conn])
+    }
     d.circuits.forEach((c, i) => {
         if (c.planned) return
-        for (const conn of d.connections) {
-            if (conn.planned && conn.nodes.some(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === c.id)) warn(`circuits.${i}.planned`, `circuit ${c.name} is built but is joined in the planned connection ${conn.name ?? conn.id}`)
-        }
+        for (const conn of plannedJoins.get(c.id) ?? []) warn(`circuits.${i}.planned`, `circuit ${c.name} is built but is joined in the planned connection ${conn.name ?? conn.id}`)
     })
     // two circuits of one path at the same tower position
     const towerSeen = new Map<string, string>()

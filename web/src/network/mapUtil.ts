@@ -1,5 +1,6 @@
 /** Map helpers shared by the Leaflet editor and its side panels (no Leaflet dependency). */
 import {atPathEnd, junctionRef} from '@shared/network/refs'
+import {circuitsOnPath, connectionOfEnd, connectionsAt, junctionsOfSite, pathsEndingAt, recordById, yardsOfSite} from '@shared/network/lookup'
 import type {CoordinatesProps} from '@shared/models/coordinates'
 import {haversineKm} from '@shared/models/coordinates'
 import {TransmissionVoltage, voltageValueKv} from '@shared/models/transmission.voltage'
@@ -177,17 +178,17 @@ export function dropDraftPlace<D extends { from: string; to: string; vias?: stri
 
 /** Where a circuit end is located on the map, following its TRANSMISSION connection. */
 export function endLocation(doc: NetworkDocument, circuitId: string, end: CircuitEnd): { coords: CoordinatesProps; label: string; connectionId: string } | undefined {
-    const conn = doc.connections.find(c => c.scope === ConnectionScope.TRANSMISSION && c.nodes.some(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && n.id === circuitId && n.terminal === end))
+    const conn = connectionOfEnd(doc, circuitId, end)
     if (!conn) return undefined
     if (conn.junction.kind === ConnectionJunctionKind.SUBSTATION) {
-        const yard = doc.substations.find(s => s.id === conn.junction.id)
-        const group = yard && doc.substationGroups.find(g => g.id === yard.groupId)
+        const yard = recordById(doc.substations, conn.junction.id)
+        const group = yard && recordById(doc.substationGroups, yard.groupId)
         if (!group) return undefined
         const takeOffNode = conn.nodes.find(n => n.kind === NetworkNodeKind.SUBSTATION_TAKE_OFF)
-        const takeOff = takeOffNode && doc.takeOffs.find(t => t.id === takeOffNode.id)
+        const takeOff = takeOffNode && recordById(doc.takeOffs, takeOffNode.id)
         return {coords: group.coords, label: `${group.groupName} ${yard!.yardName}${takeOff ? ` · ${takeOff.lineName}` : ''}`, connectionId: conn.id}
     }
-    const j = doc.junctions.find(x => x.id === conn.junction.id)
+    const j = recordById(doc.junctions, conn.junction.id)
     return j ? {coords: j.coords, label: j.name ?? j.id, connectionId: conn.id} : undefined
 }
 
@@ -211,15 +212,15 @@ const PLANNED_VOLTAGE_SHARE = .55
 export function locationOfRef(doc: NetworkDocument, ref?: ConnectionJunctionRef): { coords: CoordinatesProps; label: string } | undefined {
     if (!ref) return undefined
     if (ref.kind === ConnectionJunctionKind.SUBSTATION_GROUP) {
-        const group = doc.substationGroups.find(g => g.id === ref.id)
+        const group = recordById(doc.substationGroups, ref.id)
         return group ? {coords: group.coords, label: group.groupName} : undefined
     }
     if (ref.kind === ConnectionJunctionKind.SUBSTATION) {
-        const yard = doc.substations.find(s => s.id === ref.id)
-        const group = yard && doc.substationGroups.find(g => g.id === yard.groupId)
+        const yard = recordById(doc.substations, ref.id)
+        const group = yard && recordById(doc.substationGroups, yard.groupId)
         return group ? {coords: group.coords, label: `${group.groupName} ${yard!.yardName}`} : undefined
     }
-    const j = doc.junctions.find(x => x.id === ref.id)
+    const j = recordById(doc.junctions, ref.id)
     return j ? {coords: j.coords, label: j.name ?? j.id} : undefined
 }
 
@@ -269,15 +270,17 @@ export const SITE_SIZE_POINTS = {medium: 8, large: 16, xlarge: 32} as const
  * 8 / 16 / 32 points or more make it medium / large / x-large (`SITE_SIZE_POINTS`); less is small.
  */
 export function siteSize(doc: NetworkDocument, groupId: string): { size: SiteSize; circuits: number; points: number } {
-    const yards = new Set(doc.substations.filter(s => s.groupId === groupId).map(s => s.id))
-    const junctions = new Set(doc.junctions.filter(j => j.groupId === groupId).map(j => j.id))
     const ids = new Set<string>()
-    for (const conn of doc.connections) {
-        if (conn.scope !== ConnectionScope.TRANSMISSION) continue
-        const ends = conn.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT)
-        if (yards.has(conn.junction.id) || (junctions.has(conn.junction.id) && ends.length === 1)) for (const n of ends) ids.add(n.id)
+    const add = (placeId: string, open: boolean) => {
+        for (const conn of connectionsAt(doc, placeId)) {
+            if (conn.scope !== ConnectionScope.TRANSMISSION) continue
+            const ends = conn.nodes.filter(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT)
+            if (!open || ends.length === 1) for (const n of ends) ids.add(n.id)
+        }
     }
-    const circuits = doc.circuits.filter(c => ids.has(c.id))
+    for (const y of yardsOfSite(doc, groupId)) add(y.id, false)
+    for (const j of junctionsOfSite(doc, groupId)) add(j.id, true)
+    const circuits = [...ids].map(id => recordById(doc.circuits, id)).filter((c): c is TransmissionCircuitRecord => !!c)
     const points = circuits.reduce((sum, c) => sum + circuitSizePoints(c), 0)
     const size: SiteSize = points >= SITE_SIZE_POINTS.xlarge ? 'xlarge' : points >= SITE_SIZE_POINTS.large ? 'large' : points >= SITE_SIZE_POINTS.medium ? 'medium' : 'small'
     return {size, circuits: circuits.length, points}
@@ -290,10 +293,10 @@ export function siteSize(doc: NetworkDocument, groupId: string): { size: SiteSiz
  */
 export function junctionSize(doc: NetworkDocument, junctionId: string): { size: SiteSize; circuits: number } {
     const me = junctionRef(junctionId)
-    const perPath = new Map<string, number>()
-    for (const c of doc.circuits) if (c.pathId) perPath.set(c.pathId, (perPath.get(c.pathId) ?? 0) + 1)
-    const circuits = doc.paths.filter(p => atPathEnd(doc, me, p.from) || atPathEnd(doc, me, p.to))
-        .reduce((n, p) => Math.max(n, perPath.get(p.id) ?? 0), 0)
+    const site = recordById(doc.junctions, junctionId)?.groupId
+    const candidates = new Set([...pathsEndingAt(doc, junctionId), ...(site ? pathsEndingAt(doc, site) : [])])
+    const circuits = [...candidates].filter(p => atPathEnd(doc, me, p.from) || atPathEnd(doc, me, p.to))
+        .reduce((n, p) => Math.max(n, circuitsOnPath(doc, p.id).length), 0)
     const size: SiteSize = circuits > 6 ? 'xlarge' : circuits > 4 ? 'large' : circuits > 2 ? 'medium' : 'small'
     return {size, circuits}
 }
