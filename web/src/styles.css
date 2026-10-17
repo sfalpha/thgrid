@@ -108,42 +108,144 @@ p {
 
 .app {
     display: grid;
-    grid-template-rows: 48px 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
     height: 100%;
 }
 
-.topbar {
+/* the page beside the menu: one cell as high as the window */
+.app-page {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+}
+
+/* Main navigation (SideNav.tsx): a menu on the left, icons only while collapsed (a label names the page on hover),
+   icons and page names while expanded (.app.nav-open). Above the page, so the labels show over the map's controls. */
+.sidenav {
+    position: relative;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    /* 40 px inside: the padding and the border on the right */
+    width: 53px;
+    padding: 6px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    transition: width .15s ease;
+}
+
+.app.nav-open .sidenav {
+    width: 185px;
+}
+
+.sidenav-head {
     display: flex;
     align-items: center;
-    gap: 24px;
-    padding: 0 16px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
+    justify-content: flex-end;
+    margin-bottom: 8px;
 }
 
-.topbar .brand {
+.sidenav .brand {
+    flex: 1;
+    padding-left: 8px;
     font-weight: 700;
     font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
 }
 
-.topbar nav {
+.sidenav-item {
+    position: relative;
     display: flex;
-    gap: 4px;
-}
-
-.topbar nav a {
-    padding: 6px 10px;
+    align-items: center;
+    gap: 12px;
+    height: 38px;
+    padding: 0 10px;
     border-radius: var(--radius);
     color: var(--text);
+    white-space: nowrap;
 }
 
-.topbar nav a.active {
+.sidenav-item:hover {
+    background: var(--panel-2);
+    text-decoration: none;
+}
+
+.sidenav-item.active {
     background: var(--panel-2);
     color: var(--accent);
 }
 
-.topbar .spacer {
-    flex: 1;
+.sidenav-icon {
+    display: flex;
+    flex: none;
+}
+
+.sidenav-label {
+    overflow: hidden;
+}
+
+.app:not(.nav-open) .sidenav-label {
+    display: none;
+}
+
+.sidenav-toggle {
+    flex: none;
+    width: 40px;
+    justify-content: center;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--muted);
+}
+
+.sidenav-toggle:hover:not(:disabled) {
+    color: var(--text);
+}
+
+/* the name of an icon on hover (collapsed), and of the toggle always */
+.app:not(.nav-open) .sidenav-item:hover::after,
+.app:not(.nav-open) .sidenav-item:focus-visible::after,
+.sidenav-toggle:hover::after,
+.sidenav-toggle:focus-visible::after {
+    content: attr(data-label);
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    background: var(--text);
+    color: var(--bg);
+    font-size: 12px;
+    font-weight: 400;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+}
+
+.app.nav-open .sidenav-toggle:hover::after,
+.app.nav-open .sidenav-toggle:focus-visible::after {
+    left: calc(100% + 8px);
+}
+
+.sidenav-foot {
+    margin-top: auto;
+    padding: 6px 4px;
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sidenav {
+        transition: none;
+    }
 }
 
 .workspace {

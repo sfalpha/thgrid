@@ -29,7 +29,7 @@ web/
   tsconfig.json             browser tsconfig; also type-checks ../src/templates|models|network
   src/
     main.tsx                mount
-    App.tsx                 top bar, section switch, meta loading
+    App.tsx                 side menu + page, section switch, meta loading
     styles.css
     api/client.ts           typed fetch wrapper (ApiError with issues), downloadJson()
     hooks/useHashRoute.ts   route segments + navigate(); hrefTo()
@@ -39,6 +39,7 @@ web/
     components/
       fields.tsx            TextField, NumberField, SelectField, CheckboxField, TagsField, TextAreaField, issueFor()
       IssueList.tsx         IssueList (validation issues), Notice (ok / warn / error)
+      SideNav.tsx           main navigation: collapsible menu on the left, page icons (open state in localStorage)
       JsonEditor.tsx        raw JSON textarea that only emits when the text parses
       TemplateEditor.tsx    envelope + kind dispatch + save / delete / usage
       editors/
@@ -66,14 +67,14 @@ npm run build      # web/dist, then `npm start` serves it from the backend on :3
 
 | Hash | Page | Content |
 |---|---|---|
-| `#/` or `#/templates` | Templates | first kind selected, overview table |
+| `#/templates` | Templates | first kind selected, overview table |
 | `#/templates/:kind` | Templates | overview table of that kind |
 | `#/templates/:kind/new` | Templates | create form |
 | `#/templates/:kind/:id` | Templates | edit form + "Used by" panel |
 | `#/collections` | Collections | cards overview |
 | `#/collections/new` | Collections | create form |
 | `#/collections/:id` | Collections | edit form |
-| `#/network…` | Networks | list and the two network editors (section 9) |
+| `#/` or `#/network…` | Networks | list and the two network editors (section 9); the first page |
 
 `useHashRoute` returns the decoded segments; pages pick what they need. Links
 are plain `<a href={hrefTo(path)}>` so they work with middle-click and the
@@ -87,8 +88,13 @@ browser history.
   fails an error notice explains how to start the backend.
 * Everything below receives `meta` (kinds, enums, patterns) as a prop so
   forms never hard-code enum values.
-* Top bar: brand, section links (Templates, Collections, Networks), backend
-  version.
+* Main navigation (`SideNav.tsx`): a menu on the left with one icon per
+  section (Networks, Templates, Collections; inline SVGs, no icon library).
+  Collapsed (the default) it shows the icons only and hovering or focusing
+  one shows the section's name beside it; expanded (the button at its top,
+  remembered per browser as `thgrid.navOpen`) it shows the brand and the
+  names too. The backend version is at its foot. Switching announces a window
+  resize, so the map re-measures itself.
 
 ---
 
@@ -223,7 +229,7 @@ the UI.
 * `styles.css` defines colour tokens on `:root` and overrides them under
   `@media (prefers-color-scheme: dark)`; components use classes only, no
   inline colours except through tokens.
-* Layout primitives: `.app` (top bar + content), `.workspace` (sidebar +
+* Layout primitives: `.app` (side menu `.sidenav` + `.app-page`), `.workspace` (sidebar +
   main), `.editor-layout` (canvas, drag handle, resizable side panel whose
   width is the `--side-w` variable), `.panel`, `.form-grid` (auto-fill columns, `.span-2`, `.span-all`),
   `.winding`, tables, `.notice`, `.issues`, `.badge`, `.tag`, `.cards`.
