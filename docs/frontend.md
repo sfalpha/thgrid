@@ -677,8 +677,45 @@ immediately.
   (following its direction); then a summary with ⚠ notes about differing
   voltage / bundle / conductor / planned flags is confirmed, and renaming by
   the model rules is offered.
+* **Sectionalize lines at a junction** (`sectionalize.ts`, `buildSectionalizePlan`;
+  junction panel, *Lines through this junction*, tab *Sectionalize*): the
+  checked pass-throughs (in a node of their own; one in a tee is shown with
+  the reason and no checkbox) are cut at the junction and both sides of each
+  run to the place picked under *Into* (every site and line junction but this
+  one; at a site junction its own site comes first, see below) on a new circuit each, made like
+  the side it continues, all on one path between the junction and the place
+  (an existing one between them is offered first, *New path* otherwise; one
+  running the other way: the new circuits follow it, warned; length: the
+  path's). At the junction the first side stays in its node with its new
+  circuit, the second goes into a new node with the other. Into a **site**
+  (*Connect at*: *Into the yard at each line's energized voltage*, the
+  default): each line enters the yard at the voltage it is energized at (a
+  de-energized one: the yard at its rated voltage, where it stays
+  de-energized, warned; `sectionYard`) through a take-off per side, named
+  toward that side's far station (the end of its line on that side, past any
+  site junction it is only spliced at): a free take-off of the yard already
+  named toward it at the yard's voltage is used, else a new one is made; the
+  line is split there in two (a
+  line runs yard to yard; the second part a new line); a site **without such
+  a yard** splices the line at its site junction instead (created when
+  missing) with the warning that it is not connected to any take-off. Through
+  the site junction (asked for) or into a **line junction**: both new circuits
+  are spliced in one new node there and the line keeps running, two sections
+  longer. A line ending at the junction (spliced there to another line) gets
+  its side's new circuit on that end, which moves to the place. At a **site
+  junction, into its own site** (`PTG2 (this site): into its own yard,
+  through take-offs`, first in the list; no *Connect at* or path choice):
+  each line's two circuit ends leave the junction and enter the yard at the
+  line's energized voltage right there, through a take-off per side as above,
+  no new circuit or path, and the line is split there; the site junction is
+  removed when nothing is left at it (the site is selected afterwards); a
+  site without a yard at the line's voltage refuses it (it stays spliced).
+  Refused: the junction itself, a place the line already runs to. The outcome of each line,
+  the warnings and the errors show before running; the summary is confirmed
+  and renaming by the model rules offered; then the path is selected. Tested
+  in `web/test/sectionalize.test.ts` (docs/testing.md, section 6).
 * **Bypass a junction** (`bypassJunction.ts`, `passThroughs`, `buildBypassPlan`;
-  junction panel, *Through this junction*): every pass-through at the
+  junction panel, *Lines through this junction*, tab *Bypass*): every pass-through at the
   junction (a node holding two circuit ends; in a tee, each pair of ends
   that are consecutive sections of a line) is listed with its line name(s),
   the far ends and the node, with a checkbox (and *all*); one that cannot be
@@ -970,7 +1007,7 @@ immediately.
   a node of its own (at a line junction or a site's junction alike: a path
   ending at the site counts as ending at its junction); a node is never added
   without circuit ends and is removed when its last one leaves; below them the
-  *Through this junction* list to bypass the junction, see above; the circuit
+  *Lines through this junction* list to sectionalize the lines or bypass the junction, see above; the circuit
   panel has the same select next to an end that sits at a junction), circuit (fields; no
   template is stored on a circuit, so instead of a template select there is
   an *Apply template…* button that reveals a picker on demand and replaces

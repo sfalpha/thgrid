@@ -424,3 +424,22 @@ Also at the busy places, section 3.4 (`verifyRouteEnd`, the plan's notes exactly
 | RT-6 | a take-off left without a circuit at the old end | reported, kept; removed on request with every connection that held it (the plan lists it as removed, no note) |
 | RT-7 | de-energized (0 V) | to SH 230 kV allowed, the de-energized-entry warning, a take-off at 230 kV; to J2: sections and the new nodes at 0 V |
 | RT-8 | the line SA → J3 → SB, routed at J3 to J4 | spliced at J3 in a new node; the line now ends at J4, the section J3-SB dropped from it (in no line now, a note) |
+
+## 6. Sectionalize lines at a junction (`buildSectionalizePlan`, `web/test/sectionalize.test.ts`) – automated
+
+On the busy area (section 3): JP passes the two 230 kV lines MA – MC, JX the 500 kV line MB – ME, MS's site junction the
+230 kV line MA – ME. Every case checks that the result validates and names stay unique.
+
+| Id | Case | Current result |
+|---|---|---|
+| SC-1 | `230KV_MA_MC_L1` at JP into site MS | into MS 230 kV through new take-offs `230KV_MA_L1` and `230KV_MC_L1` at 230 kV; at JP the MA side stays in its node with its new circuit, the MC side in a new node at 230 kV with its own; the new circuits on a new path JP-MS, FROM at JP, as long as the path, made like their side; the line split into `230KV_MA_MC_L1` (MA → MS) and `230KV_MS_MC_L1` (MS → MC), both contiguous; the other JP line untouched |
+| SC-2 | `500KV_MB_ME_L1` at JX into MS (no 500 kV yard) | spliced at the site junction MS in a new node at 500 kV, warned "… MS has no yard at it, so it is spliced at the site junction MS and not connected to any take-off"; no take-off; the line keeps running, four sections |
+| SC-3 | JP into MS through its site junction (asked for) | spliced there, no warning |
+| SC-4 | both JP lines into line junction JQ | one new path JP-JQ with four circuits; a node of its own per line at JQ; each line two sections longer; the second new circuit of a line named with `_2` |
+| SC-5 | JX into MD on the existing path MD → JX | the path reused; the new circuits follow it (FROM at MD), warned; MD has no 500 kV yard: its site junction is created and the line spliced there, warned |
+| SC-6 | two lines meeting at JP (MA – JP and JP – MC) into MS | each line's end at JP moves to the MS 230 kV yard with its side's new circuit; nothing split |
+| SC-7 | a de-energized `230KV_MA_MC_L2` into MS | the yard at its rated voltage (230 kV); the de-energized-entry warning; the new circuits stay 0 V |
+| SC-8 | refusals | into MC (the line runs there already), into JP itself, a line through a tee, nothing checked: errors, no ops |
+| SC-9 | at MS's site junction, `230KV_MA_ME_L1` into MS itself | its 230 kV yard through new take-offs `230KV_MA_L1` and `230KV_ME_L2`, no new circuit or path; the splice gone, the junction kept (other lines end there); the line split into `230KV_MA_ME_L1` and `230KV_MS_ME_L2` |
+| SC-10 | the quiet 230 kV line routed via SV's site junction, then into SV, a free take-off `230KV_QA_L1` at SV | the free take-off used toward QA, a new `230KV_QB_L1` toward QB; the empty site junction removed; the line split into `230KV_QA_QB_L1` + `230KV_SV_QB_L1` |
+| SC-11 | into its own site refused | MS has no 500 kV yard (the 500 kV line stays spliced); its site junction asked for |

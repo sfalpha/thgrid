@@ -33,7 +33,8 @@ import {GENERATION_BADGES, GENERATION_LABELS, GenerationType} from '@shared/mode
 import {collectionLabel, draftNaming} from './RegenerateBox'
 import {buildNewLinePlan, NewLineLegSpec, NewLineSpec, NewLineVia} from './lineWizard'
 import {buildJoinCircuitsPlan, joinableReason} from './joinCircuits'
-import {buildBypassPlan, passThroughs} from './bypassJunction'
+import {buildBypassPlan, PassThrough, passThroughs} from './bypassJunction'
+import {buildSectionalizePlan, SectionalizePlan, sectionalizePathChoices, sectionalizeReason, SectionTarget} from './sectionalize'
 import {buildMergeAllDuplicatesPlan, buildMergePathsPlan, duplicatePathGroups, duplicatesOf, runsReversed} from './mergePaths'
 import {buildNewPathPlan} from './newPath'
 import {buildRouteViaPlan, pathsBetween, RouteVia, routeViaPathChoices, runVoltage, samePlace, yardChoices} from './routeVia'
@@ -1091,7 +1092,7 @@ function JunctionPanel({meta, record, locate}: MapPanelsProps & { record: Transm
                 )}
                 <p className="small muted">Circuit ends in the same node are electrically joined (a splice or tee); separate nodes are isolated. Check two or more circuit ends and press <em>Connect checked</em> to put them into one node; a single circuit end not connected yet (with <em>Connect checked</em> or its <em>+ node</em>) gets a node of its own. A node exists only with circuit ends in it: one left empty is removed.</p>
             </div>
-            <BypassJunctionPanel junctionId={record.id} locate={locate}/>
+            <ThroughJunctionPanel junctionId={record.id} locate={locate}/>
             <LinesAtPanel refs={[{kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: record.id}]} locate={locate}/>
         </>
     )
@@ -1118,25 +1119,34 @@ function MoveEndSelect({circuitId, end, junctionId, currentId}: { circuitId: str
     )
 }
 
+type ThroughOp = 'section' | 'bypass'
+
+const THROUGH_OPS: { key: ThroughOp; label: string; title: string }[] = [
+    {key: 'section', label: 'Sectionalize', title: 'Cut the checked lines here and take both sides into a site (the yard at their voltage) or another junction'},
+    {key: 'bypass', label: 'Bypass', title: 'Join the two circuits of each checked line into one circuit running past this junction'},
+]
+
 /**
- * What passes through the junction (two circuit ends spliced in one node),
- * each with a checkbox: the checked ones are bypassed in one journaled step,
- * their two circuits joined into one running directly between the far ends
- * (`buildBypassPlan`). Nodes left without circuit ends go, and the junction
- * too when nothing is left there.
+ * The lines passing through the junction (two circuit ends spliced in one node), each with a checkbox, and what to do
+ * with the checked ones: sectionalize them into a site or another junction (`SectionalizeFields`), or bypass the
+ * junction (`buildBypassPlan`): their two circuits joined into one running directly between the far ends. The checks
+ * stay when switching tabs; a line the tab cannot take is shown disabled, with the reason.
  */
-function BypassJunctionPanel({junctionId, locate}: { junctionId: string; locate?: (sel: Selection) => void }) {
+function ThroughJunctionPanel({junctionId, locate}: { junctionId: string; locate?: (sel: Selection) => void }) {
     const ed = useNetworkEditor()
     const doc = ed.doc
     const items = useMemo(() => passThroughs(doc, junctionId), [doc, junctionId])
     const [checked, setChecked] = useState<Set<string>>(new Set())
-    // Drop checks of pass-throughs that are gone (bypassed, or changed elsewhere).
+    const [op, setOp] = useState<ThroughOp>('section')
+    // Drop checks of pass-throughs that are gone (sectionalized, bypassed, or changed elsewhere).
     useEffect(() => setChecked(prev => {
-        const alive = new Set(items.filter(i => !i.reason).map(i => i.key))
+        const alive = new Set(items.map(i => i.key))
         const next = new Set([...prev].filter(k => alive.has(k)))
         return next.size === prev.size ? prev : next
     }), [items])
-    const selectable = items.filter(i => !i.reason)
+    const reasonFor = (i: PassThrough) => op === 'bypass' ? i.reason : sectionalizeReason(i)
+    const selectable = items.filter(i => !reasonFor(i))
+    const chosen = selectable.filter(i => checked.has(i.key))
     const allChecked = selectable.length > 0 && selectable.every(i => checked.has(i.key))
     const toggle = (key: string) => setChecked(prev => {
         const next = new Set(prev)
@@ -1144,8 +1154,9 @@ function BypassJunctionPanel({junctionId, locate}: { junctionId: string; locate?
         else next.add(key)
         return next
     })
+    const done = () => setChecked(new Set())
     const bypass = () => {
-        const keys = [...checked]
+        const keys = chosen.map(i => i.key)
         let plan = buildBypassPlan(doc, junctionId, keys)
         if (plan.withExistingPath && window.confirm(`${plan.withExistingPath} of the checked already ha${plan.withExistingPath === 1 ? 's' : 've'} a path running between the joined ends.\n\nOK = run the joined circuit${plan.withExistingPath === 1 ? '' : 's'} on that existing path; Cancel = keep the route through this junction's position (an extended or new path).`))
             plan = buildBypassPlan(doc, junctionId, keys, {reuseExistingPaths: true})
@@ -1162,7 +1173,7 @@ function BypassJunctionPanel({junctionId, locate}: { junctionId: string; locate?
         if (!window.confirm(`${summary}\n\nContinue?`)) return
         const rename = plan.regenerate.changes.length > 0 && window.confirm(`Also rename the joined circuits and their paths by the model rules (${plan.regenerate.changes.length} change(s))?`)
         if (!ed.apply(rename ? [...plan.ops, ...plan.regenerate.ops] : plan.ops)) return
-        setChecked(new Set())
+        done()
         // The junction is gone: show the first joined circuit instead (under its new id when it was renamed).
         if (plan.junctionRemoved) {
             const id = plan.joined[0].circuit.id
@@ -1174,30 +1185,156 @@ function BypassJunctionPanel({junctionId, locate}: { junctionId: string; locate?
     return (
         <div className="panel">
             <div className="panel-header">
-                <h3 style={{margin: 0}}>Through this junction</h3>
+                <h3 style={{margin: 0}}>Lines through this junction</h3>
                 <span className="spacer"/>
                 {selectable.length > 1 && <label className="small" style={{display: 'flex', gap: 4, alignItems: 'center'}}>
                     <input type="checkbox" checked={allChecked} onChange={() => setChecked(allChecked ? new Set() : new Set(selectable.map(i => i.key)))}/> all
                 </label>}
-                <button type="button" className="small danger" disabled={checked.size === 0} onClick={bypass}
-                        title="Join the two circuits of each checked pass-through into one circuit that runs directly between their far ends, no longer through this junction">Bypass checked</button>
             </div>
-            {items.length === 0 && <p className="small muted" style={{margin: 0}}>Nothing passes through here (a pass-through is a node holding two circuit ends).</p>}
-            <div className="find-results" style={{marginTop: 0}}>
-                {items.map(i => (
-                    <label key={i.key} className="find-item" style={{alignItems: 'flex-start', padding: '3px 0'}} title={i.reason}>
-                        <input type="checkbox" checked={checked.has(i.key)} disabled={!!i.reason} onChange={() => toggle(i.key)} style={{marginTop: 3}}/>
-                        <span className="small">
-                            <strong>{i.lines.length ? i.lines.map(l => l.name).join(', ') : `${i.circuits[0].name} + ${i.circuits[1].name}`}</strong>
-                            <span className="muted"> · {refLabel(doc, i.farEnds[0])} ↔ {refLabel(doc, i.farEnds[1])} · node {i.connection.name ?? i.connection.id}</span>
-                            {i.lines.length > 0 && <span className="muted"><br/>{i.circuits[0].name} + {i.circuits[1].name}</span>}
-                            {i.reason && <span className="warn-dot"><br/>⚠ {i.reason}</span>}
-                        </span>
-                    </label>
-                ))}
-            </div>
-            {items.length > 0 && <p className="small muted" style={{marginBottom: 0}}>Bypassing joins the two circuits of a pass-through into one circuit that runs directly between their far ends (lines keep it as one section; lengths add up). The node here goes, unused paths are removed, and the junction too when nothing is left.</p>}
+            {items.length === 0 ? <p className="small muted" style={{margin: 0}}>Nothing passes through here (a pass-through is a node holding two circuit ends).</p> : (
+                <>
+                    <div className="panel-tabs" role="tablist" style={{margin: '6px 0'}}>
+                        {THROUGH_OPS.map(o => <button key={o.key} type="button" role="tab" aria-selected={op === o.key} className={op === o.key ? 'active' : ''} title={o.title} onClick={() => setOp(o.key)}>{o.label}</button>)}
+                    </div>
+                    <div className="find-results" style={{marginTop: 0}}>
+                        {items.map(i => {
+                            const reason = reasonFor(i)
+                            return (
+                                <label key={i.key} className="find-item" style={{alignItems: 'flex-start', padding: '3px 0'}} title={reason}>
+                                    <input type="checkbox" checked={!reason && checked.has(i.key)} disabled={!!reason} onChange={() => toggle(i.key)} style={{marginTop: 3}}/>
+                                    <span className="small">
+                                        <strong>{i.lines.length ? i.lines.map(l => l.name).join(', ') : `${i.circuits[0].name} + ${i.circuits[1].name}`}</strong>
+                                        <span className="muted"> · {refLabel(doc, i.farEnds[0])} ↔ {refLabel(doc, i.farEnds[1])} · {runVoltage(i.circuits[0]) ?? 'no voltage'} · node {i.connection.name ?? i.connection.id}</span>
+                                        {i.lines.length > 0 && <span className="muted"><br/>{i.circuits[0].name} + {i.circuits[1].name}</span>}
+                                        {reason && <span className="warn-dot"><br/>⚠ {reason}</span>}
+                                    </span>
+                                </label>
+                            )
+                        })}
+                    </div>
+                    {op === 'section' ? <SectionalizeFields junctionId={junctionId} chosen={chosen} locate={locate} onDone={done}/> : (
+                        <>
+                            <div className="toolbar" style={{marginTop: 6}}>
+                                <button type="button" className="small danger" disabled={chosen.length === 0} onClick={bypass}
+                                        title="Join the two circuits of each checked pass-through into one circuit that runs directly between their far ends, no longer through this junction">Bypass {chosen.length || ''} checked</button>
+                            </div>
+                            <p className="small muted" style={{marginBottom: 0}}>Bypassing joins the two circuits of a pass-through into one circuit that runs directly between their far ends (lines keep it as one section; lengths add up). The node here goes, unused paths are removed, and the junction too when nothing is left.</p>
+                        </>
+                    )}
+                </>
+            )}
         </div>
+    )
+}
+
+/**
+ * Sectionalize the checked lines into a site or another junction (`buildSectionalizePlan`): each is cut at this junction
+ * and both sides are taken to the place by a new circuit, on one path. At a site they enter the yard at the voltage the
+ * line is energized at, through a take-off each, and the line is split there; a site without such a yard (or its site
+ * junction asked for), or a line junction, splices them and the line keeps running. At a site junction its own site is
+ * offered first: the lines enter its yard right there (no new circuit or path). The outcome is shown before running.
+ */
+function SectionalizeFields({junctionId, chosen, locate, onDone}: { junctionId: string; chosen: PassThrough[]; locate?: (sel: Selection) => void; onDone: () => void }) {
+    const ed = useNetworkEditor()
+    const doc = ed.doc
+    const here = doc.junctions.find(j => j.id === junctionId)
+    const [intoValue, setIntoValue] = useState('')
+    /** At a site: through its site junction (spliced) instead of the yard. */
+    const [atJunction, setAtJunction] = useState(false)
+    /** An existing path's id, NEW_PATH, or unset = the first existing path when there is one. */
+    const [pathPick, setPathPick] = useState<string | undefined>()
+    useEffect(() => {
+        setIntoValue('')
+        setPathPick(undefined)
+    }, [junctionId])
+    // every site and line junction but this one; at a site junction its own site first: into its yard right here
+    const ownSite = here?.groupId ? doc.substationGroups.find(g => g.id === here.groupId) : undefined
+    const options = [
+        ...(ownSite ? [{value: `G:${ownSite.id}`, label: `${ownSite.groupName} (this site): into its own yard, through take-offs`}] : []),
+        ...useEndOptions().filter(o => o.value !== `J:${junctionId}` && o.value !== `G:${ownSite?.id}`),
+    ]
+    const ref = decodeRef(intoValue)
+    const site = ref?.kind === ConnectionJunctionKind.SUBSTATION_GROUP ? doc.substationGroups.find(g => g.id === ref.id) : undefined
+    const target: SectionTarget | undefined = !ref ? undefined : site ? {kind: 'site', groupId: site.id, siteJunction: atJunction} : {kind: 'junction', junctionId: ref.id}
+    const pathChoices = target ? sectionalizePathChoices(doc, junctionId, target) : []
+    const reuse = pathPick === NEW_PATH ? undefined : pathChoices.find(p => p.id === pathPick) ?? pathChoices[0]
+    // the checked lines as one value for the memo (a pass-through's key holds '|')
+    const keys = chosen.map(i => i.key).join('\n')
+    const plan = useMemo(() => target && keys ? buildSectionalizePlan(doc, junctionId, keys.split('\n'), target, {pathId: reuse?.id}) : undefined,
+        [doc, junctionId, keys, intoValue, atJunction, reuse?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+    const siteJunction = site ? siteJunctionOf(doc, site.id) : undefined
+    const intoOwn = !!site && site.id === ownSite?.id
+    const name = site ? `${site.groupName}${intoOwn ? "'s yard" : ''}` : ref ? refLabel(doc, ref) : '…'
+    const hereName = here?.name ?? junctionId
+    /** How a line goes into the place, for the list and the confirmation. */
+    const outcome = (x: SectionalizePlan['lines'][number]) => x.yard
+        ? `into yard ${site?.groupName} ${x.yard.yardName} (${x.yard.voltage}) through take-offs ${x.takeOffs.map(t => `${t.lineName}${x.reusedTakeOffs.includes(t) ? ' (free, used)' : ''}`).join(', ')}; ${x.splitLines.length ? `split there into ${x.splitLines.map(s => `${s.line.name} + ${s.added.name}`).join(', ')}` : 'its lines end there'}`
+        : `spliced at ${x.junction?.groupId ? 'the site junction ' : 'junction '}${x.junction?.name ?? x.junction?.id}, no take-offs; keeps running, two sections longer`
+
+    const run = () => {
+        if (!plan || plan.errors.length) return
+        const summary = [
+            `Sectionalize ${plan.lines.length} line(s) at ${hereName} into ${plan.targetLabel}:`,
+            ...plan.lines.map(x => `• ${x.label}: ${outcome(x)}`),
+            plan.intoOwnSite ? 'No new circuit or path: the circuit ends leave the junction for the yard.'
+                : `New circuits ${plan.lines.flatMap(x => x.added.map(c => c.name)).join(', ')} on ${plan.pathCreated ? 'new' : 'existing'} path ${plan.path?.name}.`,
+            ...plan.warnings.map(w => `⚠ ${w}`),
+            plan.createdJunction ? `The site junction ${plan.createdJunction.name} is created.` : '',
+            plan.removedJunction ? `Nothing is left at the site junction ${plan.removedJunction.name ?? plan.removedJunction.id}: it is removed.` : '',
+        ].filter(Boolean).join('\n')
+        if (!window.confirm(`${summary}\n\nContinue?`)) return
+        const rename = plan.regenerate.changes.length > 0 && window.confirm(`Also rename the new circuits, the path and the changed lines by the model rules (${plan.regenerate.changes.length} change(s))?`)
+        if (!ed.apply(rename ? [...plan.ops, ...plan.regenerate.ops] : plan.ops)) return
+        onDone()
+        // into its own site: show the site (its junction may be gone); else the path the lines now run on
+        if (plan.intoOwnSite && site) {
+            ed.select({collection: 'substationGroups', id: site.id})
+            return
+        }
+        const pathId = (rename && plan.regenerate.changes.find(c => c.collection === 'paths' && c.id === plan.path?.id)?.newId) || plan.path?.id
+        if (pathId) {
+            ed.select({collection: 'paths', id: pathId})
+            locate?.({collection: 'paths', id: pathId})
+        }
+    }
+
+    return (
+        <>
+            <div className="form-grid" style={{gridTemplateColumns: '1fr', gap: 8, marginTop: 6}}>
+                <SelectField label="Into" value={intoValue || undefined} options={options} allowEmpty emptyLabel="Choose a site or junction…" onChange={v => {
+                    setIntoValue(v ?? '')
+                    setAtJunction(false)
+                    setPathPick(undefined)
+                }}/>
+                {site && !intoOwn && (
+                    <div className="field">
+                        <label>Connect at {site.groupName}</label>
+                        <select value={atJunction ? 'J' : 'Y'} onChange={e => setAtJunction(e.target.value === 'J')}>
+                            <option value="Y">Into the yard at each line's energized voltage (take-offs)</option>
+                            <option value="J">Through the site junction {siteJunction ? siteJunction.name ?? siteJunction.id : '(created)'}: spliced, no take-offs</option>
+                        </select>
+                    </div>
+                )}
+                {pathChoices.length > 0 && (
+                    <div className="field">
+                        <label>Path {hereName} – {name}</label>
+                        <select value={reuse?.id ?? NEW_PATH} onChange={e => setPathPick(e.target.value)}>
+                            {pathChoices.map(p => <option key={p.id} value={p.id}>Use existing path {p.name} ({doc.circuits.filter(c => c.pathId === p.id).length} circuits)</option>)}
+                            <option value={NEW_PATH}>New path</option>
+                        </select>
+                    </div>
+                )}
+            </div>
+            {plan && plan.errors.length === 0 && plan.lines.map(x => <p key={x.key} className="small" style={{margin: '6px 0 0'}}><b>{x.label}</b>: {outcome(x)}</p>)}
+            {plan?.warnings.map(w => <p key={w} className="small warn-dot" style={{margin: '6px 0 0', whiteSpace: 'normal'}}>⚠ {w}</p>)}
+            {plan?.errors.map(e => <p key={e} className="small" style={{margin: '6px 0 0', color: 'var(--danger)'}}>✗ {e}</p>)}
+            <div className="toolbar" style={{marginTop: 8}}>
+                <button type="button" className="small primary" disabled={!plan || plan.errors.length > 0} onClick={run}>Sectionalize {chosen.length || ''} into {name}</button>
+            </div>
+            <p className="small muted" style={{marginBottom: 0}}>{intoOwn
+                ? `The checked lines leave this junction and enter the ${site?.groupName} yard at their energized voltage, through a take-off per side (a free one toward the far station when there is one), and are split there in two; no new circuit or path. The junction goes when nothing is left at it.`
+                : 'Each checked line is cut here and both sides run to the place on a new circuit each (one path for all). At a site they enter the yard at the line\'s energized voltage through a take-off each (a free one toward the far station when there is one) and the line is split there in two; a site without such a yard takes them at its site junction instead (warned). At a junction they are spliced and the line keeps running.'}</p>
+        </>
     )
 }
 
