@@ -8,8 +8,9 @@
  * The data set mirrors the TypeScript constants that used to live under
  * `src/templates/{conductor,circuit,powertransformer}/egat.*.ts`.
  */
+import fs from "node:fs/promises";
 import path from "node:path";
-import {loadConfig, dataLayout} from "../src/server/config";
+import {loadConfig, dataLayout, repoRoot} from "../src/server/config";
 import {TemplateStore} from "../src/server/storage/template.store";
 import {CollectionStore} from "../src/server/storage/collection.store";
 import {slugifyTemplateId, TemplateKind, TemplateRecord} from "../src/templates/template";
@@ -27,14 +28,8 @@ import {
 import {getTemplateKindDefinition} from "../src/templates/registry";
 import {TemplateCollection} from "../src/templates/collection";
 import {NetworkStore} from "../src/server/storage/network.store";
-import {
-    CIRCUIT_END_FROM,
-    CIRCUIT_END_TO,
-    ConnectionJunctionKind,
-    ConnectionScope,
-    NetworkNodeKind,
-    newNetworkDocument,
-} from "../src/network/records";
+import {NetworkDocument} from "../src/network/records";
+import {migrateNetworkDocument} from "../src/network/migrate";
 import {validateNetworkDocument} from "../src/network/validation";
 import {SubstationArrangement} from "../src/models/substation";
 import {SubstationBusType} from "../src/models/substation.bus";
@@ -240,9 +235,9 @@ async function main() {
 }
 
 /**
- * A small sample grid so the editors have something to show: the CNO 230 kV
- * yard (coordinates from the original data set), one bay wired bus → breaker →
- * take-off, a junction and a 230 kV circuit section leaving the take-off.
+ * The sample grid, so the editors have something to show: written from `scripts/sample-grid.json`, the part of the
+ * EGAT network around PDG (Pluak Daeng) that `npm run sample:grid` takes: PDG, the lines connected to it and the sites
+ * one line away.
  */
 async function seedSampleNetwork(dataDir: string) {
     const store = new NetworkStore(path.join(dataDir, dataLayout.networks))
@@ -252,37 +247,13 @@ async function seedSampleNetwork(dataDir: string) {
         console.log(`network ${id}: exists, skipped`)
         return
     }
-    const doc = newNetworkDocument(id, 'Sample grid', now)
-    doc.description = 'Example network: CNO 230 kV yard with one wired bay, a line junction and one circuit section.'
-    const yard = 'CNO_230KV'
-    doc.substationGroups.push({id: 'CNO', groupName: 'CNO', name: 'Chonburi', coords: {latitude: 12.675490455599641, longitude: 101.33362016474413}})
-    doc.substations.push({id: yard, groupId: 'CNO', yardName: '230KV', voltage: TransmissionVoltage.AC230KV, arrangement: SubstationArrangement.BREAKER_AND_A_HALF,
-        coords: {latitude: 12.675588602194443, longitude: 101.33402919442857}})
-    doc.buses.push({id: `${yard}_BUS1`, substationId: yard, busType: SubstationBusType.MAIN, busNumber: '1', bayNumber: '8001', row: 0, voltage: TransmissionVoltage.AC230KV})
-    doc.buses.push({id: `${yard}_BUS2`, substationId: yard, busType: SubstationBusType.MAIN, busNumber: '2', bayNumber: '8002', row: 6, voltage: TransmissionVoltage.AC230KV})
-    for (const [i, bay] of ['8041', '8042', '8043'].entries()) doc.bays.push({id: `${yard}_BAY_${bay}`, substationId: yard, bayNumber: bay, column: i, voltage: TransmissionVoltage.AC230KV})
-    const bay = `${yard}_BAY_8041`
-    doc.equipments.push({id: `${yard}_8041_DS1`, substationId: yard, bayId: bay, code: '8041-1', equipmentType: SubstationEquipmentType.DISCONNECTING_SWITCH, terminals: [{key: 'A'}, {key: 'B'}], row: 1})
-    doc.equipments.push({id: `${yard}_8041_CB`, substationId: yard, bayId: bay, code: '8041', equipmentType: SubstationEquipmentType.CIRCUIT_BREAKER, terminals: [{key: 'A'}, {key: 'B'}], row: 2})
-    doc.equipments.push({id: `${yard}_8041_CT`, substationId: yard, bayId: bay, code: '8041-CT', equipmentType: SubstationEquipmentType.CURRENT_TRANSFORMER, terminals: [{key: 'A'}, {key: 'B'}], row: 3})
-    doc.takeOffs.push({id: `${yard}_TO_CTI_L1`, substationId: yard, bayId: bay, lineName: 'CTI_L1', row: 4, takeOffColumn: true})
-    doc.junctions.push({id: 'CNO_JT_1', name: 'CNO_JT_1', coords: {latitude: 12.6912, longitude: 101.3601}})
-    doc.paths.push({id: 'CNO_CTI_L1_S1_PATH', name: 'CNO–JT1 tower line', from: {kind: ConnectionJunctionKind.SUBSTATION_GROUP, id: 'CNO'}, to: {kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: 'CNO_JT_1'}, waypoints: [{latitude: 12.6832, longitude: 101.3468}]})
-    doc.circuits.push({id: 'TCC_230KV_CNO_CTI_L1_S1', name: '230KV_CNO_CTI_L1_S1', pathId: 'CNO_CTI_L1_S1_PATH',
-        voltage: TransmissionVoltage.AC230KV, energizedVoltage: TransmissionVoltage.AC230KV, bundle: 4,
-        conductor: {size: 1272, unit: TransmissionWireUnit.MCM, type: TransmissionWireType.ACSR_GA}, lengthKm: 3.4})
-    const at = {kind: ConnectionJunctionKind.SUBSTATION, id: yard}
-    doc.connections.push({id: `${yard}_X1`, scope: ConnectionScope.SUBSTATION, junction: at, nodes: [{kind: NetworkNodeKind.SUBSTATION_BUS, id: `${yard}_BUS1`}, {kind: NetworkNodeKind.EQUIPMENT_TERMINAL, id: `${yard}_8041_DS1`, terminal: 'A'}]})
-    doc.connections.push({id: `${yard}_X2`, scope: ConnectionScope.SUBSTATION, junction: at, nodes: [{kind: NetworkNodeKind.EQUIPMENT_TERMINAL, id: `${yard}_8041_DS1`, terminal: 'B'}, {kind: NetworkNodeKind.EQUIPMENT_TERMINAL, id: `${yard}_8041_CB`, terminal: 'A'}]})
-    doc.connections.push({id: `${yard}_X3`, scope: ConnectionScope.SUBSTATION, junction: at, nodes: [{kind: NetworkNodeKind.EQUIPMENT_TERMINAL, id: `${yard}_8041_CB`, terminal: 'B'}, {kind: NetworkNodeKind.EQUIPMENT_TERMINAL, id: `${yard}_8041_CT`, terminal: 'A'}]})
-    doc.connections.push({id: `${yard}_X4`, scope: ConnectionScope.SUBSTATION, junction: at, nodes: [{kind: NetworkNodeKind.EQUIPMENT_TERMINAL, id: `${yard}_8041_CT`, terminal: 'B'}, {kind: NetworkNodeKind.SUBSTATION_TAKE_OFF, id: `${yard}_TO_CTI_L1`}]})
-    doc.connections.push({id: `${yard}_L1`, scope: ConnectionScope.TRANSMISSION, junction: at, nodes: [{kind: NetworkNodeKind.SUBSTATION_TAKE_OFF, id: `${yard}_TO_CTI_L1`}, {kind: NetworkNodeKind.TRANSMISSION_CIRCUIT, id: 'TCC_230KV_CNO_CTI_L1_S1', terminal: CIRCUIT_END_FROM}]})
-    doc.connections.push({id: 'CNO_JT_1_C1', name: 'CNO_JT_1_1', voltage: TransmissionVoltage.AC230KV, scope: ConnectionScope.TRANSMISSION, junction: {kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: 'CNO_JT_1'}, nodes: [{kind: NetworkNodeKind.TRANSMISSION_CIRCUIT, id: 'TCC_230KV_CNO_CTI_L1_S1', terminal: CIRCUIT_END_TO}]})
-    const issues = validateNetworkDocument(doc)
+    const sample = JSON.parse(await fs.readFile(path.join(repoRoot, 'scripts', 'sample-grid.json'), 'utf8')) as NetworkDocument
+    const doc: NetworkDocument = {...migrateNetworkDocument(sample).doc, id, revision: 0, createdAt: now, updatedAt: now}
+    const issues = validateNetworkDocument(doc).filter(i => i.severity !== 'warning')
     if (issues.length) throw new Error(`Sample network invalid: ${JSON.stringify(issues)}`)
     await store.save(doc)
     await store.deleteJournal(id)
-    console.log(`network ${id}: written`)
+    console.log(`network ${id}: written (${doc.substationGroups.length} sites, ${doc.lines.length} lines)`)
 }
 
 main().catch(err => {

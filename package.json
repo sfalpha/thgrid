@@ -26,6 +26,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && tsc -p web/test/tsconfig.json --noEmit",
     "start": "node dist/server/index.js",
     "seed": "tsx scripts/seed.ts",
+    "sample:grid": "tsx scripts/sample-grid.ts",
     "seed:fixture": "tsx --tsconfig web/test/tsconfig.json scripts/seed-fixture.ts",
     "smoke": "tsx scripts/smoke.ts",
     "test": "tsx --tsconfig web/test/tsconfig.json web/test/run.ts"

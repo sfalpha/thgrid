@@ -1,0 +1,1761 @@
+{
+  "format": "thgrid.network",
+  "version": 1,
+  "id": "sample_grid",
+  "name": "Sample grid",
+  "revision": 0,
+  "createdAt": "2026-10-18T02:45:01.456Z",
+  "updatedAt": "2026-10-18T02:45:01.456Z",
+  "substationGroups": [
+    {
+      "id": "SSG_PDG",
+      "groupName": "PDG",
+      "coords": {
+        "latitude": 12.987587,
+        "longitude": 101.193073
+      },
+      "name": "Pluak Daeng Substation"
+    },
+    {
+      "id": "SSG_BLCP_T",
+      "groupName": "BLCP_T",
+      "name": "BLCP Thermal Power Plant",
+      "coords": {
+        "latitude": 12.646294,
+        "longitude": 101.16168
+      },
+      "generation": true,
+      "generationTypes": [
+        "THERMAL"
+      ]
+    },
+    {
+      "id": "SSG_BL2",
+      "groupName": "BL2",
+      "name": "Bang Lamung 2",
+      "coords": {
+        "latitude": 13.008618,
+        "longitude": 100.97885
+      }
+    },
+    {
+      "id": "SSG_GPD_C",
+      "groupName": "GPD_C",
+      "name": "Gulf PD Power Plant",
+      "coords": {
+        "latitude": 12.956911,
+        "longitude": 101.155801
+      },
+      "generation": true,
+      "generationTypes": [
+        "COMBINED_CYCLE_GAS_TURBINE"
+      ],
+      "extensionOf": "SSG_PDG"
+    },
+    {
+      "id": "SSG_GSRC_C",
+      "groupName": "GSRC_C",
+      "name": "Gulf SRC Power Plant",
+      "coords": {
+        "latitude": 13.048832,
+        "longitude": 101.194553
+      },
+      "generation": true,
+      "generationTypes": [
+        "COMBINED_CYCLE_GAS_TURBINE"
+      ],
+      "extensionOf": "SSG_PDG"
+    },
+    {
+      "id": "SSG_CC2",
+      "groupName": "CC2",
+      "name": "Chachoengsao 2",
+      "coords": {
+        "latitude": 13.609432,
+        "longitude": 101.159308
+      }
+    },
+    {
+      "id": "SSG_PNS",
+      "groupName": "PNS",
+      "name": "Phanomsarakham Substation",
+      "coords": {
+        "latitude": 13.652706,
+        "longitude": 101.362389
+      }
+    },
+    {
+      "id": "SSG_BKI",
+      "groupName": "BKI",
+      "name": "Ban Khai",
+      "coords": {
+        "latitude": 12.787633,
+        "longitude": 101.249185
+      }
+    }
+  ],
+  "substations": [
+    {
+      "id": "SSY_BKI_230KV",
+      "groupId": "SSG_BKI",
+      "yardName": "230KV",
+      "voltage": "AC230KV"
+    },
+    {
+      "id": "SSY_BKI_115KV",
+      "groupId": "SSG_BKI",
+      "yardName": "115KV",
+      "voltage": "AC115KV"
+    },
+    {
+      "id": "SSY_PDG_500KV",
+      "groupId": "SSG_PDG",
+      "yardName": "500KV",
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "SSY_PDG_230KV",
+      "groupId": "SSG_PDG",
+      "yardName": "230KV",
+      "voltage": "AC230KV"
+    },
+    {
+      "id": "SSY_PDG_115KV",
+      "groupId": "SSG_PDG",
+      "yardName": "115KV",
+      "voltage": "AC115KV"
+    },
+    {
+      "id": "SSY_BLCP_T_500KV",
+      "groupId": "SSG_BLCP_T",
+      "yardName": "500KV",
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "SSY_BL2_230KV",
+      "groupId": "SSG_BL2",
+      "yardName": "230KV",
+      "voltage": "AC230KV"
+    },
+    {
+      "id": "SSY_BL2_500KV",
+      "groupId": "SSG_BL2",
+      "yardName": "500KV",
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "SSY_BL2_115KV",
+      "groupId": "SSG_BL2",
+      "yardName": "115KV",
+      "voltage": "AC115KV"
+    },
+    {
+      "id": "SSY_GPD_C_500KV",
+      "groupId": "SSG_GPD_C",
+      "yardName": "500KV",
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "SSY_GSRC_C_500KV",
+      "groupId": "SSG_GSRC_C",
+      "yardName": "500KV",
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "SSY_CC2_500KV",
+      "groupId": "SSG_CC2",
+      "yardName": "500KV",
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "SSY_PNS_500KV",
+      "groupId": "SSG_PNS",
+      "yardName": "500KV",
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "SSY_CC2_230KV",
+      "groupId": "SSG_CC2",
+      "yardName": "230KV",
+      "voltage": "AC230KV"
+    }
+  ],
+  "buses": [],
+  "bays": [],
+  "equipments": [],
+  "takeOffs": [
+    {
+      "id": "STO_PDG_230KV_230KV_BKI_L1",
+      "name": "230KV_BKI_L1",
+      "substationId": "SSY_PDG_230KV",
+      "lineName": "230KV_BKI_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_BKI_230KV_230KV_PDG_L1",
+      "name": "230KV_PDG_L1",
+      "substationId": "SSY_BKI_230KV",
+      "lineName": "230KV_PDG_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_230KV_230KV_BKI_L2",
+      "name": "230KV_BKI_L2",
+      "substationId": "SSY_PDG_230KV",
+      "lineName": "230KV_BKI_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_BKI_230KV_230KV_PDG_L2",
+      "name": "230KV_PDG_L2",
+      "substationId": "SSY_BKI_230KV",
+      "lineName": "230KV_PDG_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_BLCP_T_L1",
+      "name": "500KV_BLCP_T_L1",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_BLCP_T_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_BLCP_T_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "substationId": "SSY_BLCP_T_500KV",
+      "lineName": "500KV_PDG_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_BLCP_T_L2",
+      "name": "500KV_BLCP_T_L2",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_BLCP_T_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_BLCP_T_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "substationId": "SSY_BLCP_T_500KV",
+      "lineName": "500KV_PDG_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_GPD_C_L1",
+      "name": "500KV_GPD_C_L1",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_GPD_C_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_GPD_C_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "substationId": "SSY_GPD_C_500KV",
+      "lineName": "500KV_PDG_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_GPD_C_L2",
+      "name": "500KV_GPD_C_L2",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_GPD_C_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_GPD_C_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "substationId": "SSY_GPD_C_500KV",
+      "lineName": "500KV_PDG_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_BL2_L1",
+      "name": "500KV_BL2_L1",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_BL2_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_BL2_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "substationId": "SSY_BL2_500KV",
+      "lineName": "500KV_PDG_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_BL2_L2",
+      "name": "500KV_BL2_L2",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_BL2_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_BL2_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "substationId": "SSY_BL2_500KV",
+      "lineName": "500KV_PDG_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_GSRC_C_L1",
+      "name": "500KV_GSRC_C_L1",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_GSRC_C_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_GSRC_C_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "substationId": "SSY_GSRC_C_500KV",
+      "lineName": "500KV_PDG_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_GSRC_C_L2",
+      "name": "500KV_GSRC_C_L2",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_GSRC_C_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_GSRC_C_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "substationId": "SSY_GSRC_C_500KV",
+      "lineName": "500KV_PDG_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_CC2_L1",
+      "name": "500KV_CC2_L1",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_CC2_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_CC2_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "substationId": "SSY_CC2_500KV",
+      "lineName": "500KV_PDG_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_CC2_L2",
+      "name": "500KV_CC2_L2",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_CC2_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_CC2_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "substationId": "SSY_CC2_500KV",
+      "lineName": "500KV_PDG_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_PNS_L1",
+      "name": "500KV_PNS_L1",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_PNS_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PNS_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "substationId": "SSY_PNS_500KV",
+      "lineName": "500KV_PDG_L1",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_PNS_L2",
+      "name": "500KV_PNS_L2",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_PNS_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PNS_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "substationId": "SSY_PNS_500KV",
+      "lineName": "500KV_PDG_L2",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_CC2_L3",
+      "name": "500KV_CC2_L3",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_CC2_L3",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_CC2_500KV_500KV_PDG_L3",
+      "name": "500KV_PDG_L3",
+      "substationId": "SSY_CC2_500KV",
+      "lineName": "500KV_PDG_L3",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_PDG_500KV_500KV_CC2_L4",
+      "name": "500KV_CC2_L4",
+      "substationId": "SSY_PDG_500KV",
+      "lineName": "500KV_CC2_L4",
+      "takeOffColumn": true
+    },
+    {
+      "id": "STO_CC2_500KV_500KV_PDG_L4",
+      "name": "500KV_PDG_L4",
+      "substationId": "SSY_CC2_500KV",
+      "lineName": "500KV_PDG_L4",
+      "takeOffColumn": true
+    }
+  ],
+  "junctions": [],
+  "circuits": [
+    {
+      "id": "TCC_230KV_PDG_BKI_L1_PDG-BKI",
+      "name": "230KV_PDG_BKI_L1_PDG-BKI",
+      "pathId": "TPA_PDG_BKI",
+      "voltage": "AC230KV",
+      "bundle": 4,
+      "lengthKm": 23.05,
+      "energizedVoltage": "AC230KV",
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      }
+    },
+    {
+      "id": "TCC_230KV_PDG_BKI_L2_PDG-BKI",
+      "name": "230KV_PDG_BKI_L2_PDG-BKI",
+      "pathId": "TPA_PDG_BKI",
+      "voltage": "AC230KV",
+      "bundle": 4,
+      "lengthKm": 23.05,
+      "energizedVoltage": "AC230KV",
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      }
+    },
+    {
+      "id": "TCC_500KV_PDG_BLCP_T_L1_PDG-BLCP_T",
+      "name": "500KV_PDG_BLCP_T_L1_PDG-BLCP_T",
+      "pathId": "TPA_PDG_BLCP_T",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 38.1,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_BLCP_T_L2_PDG-BLCP_T",
+      "name": "500KV_PDG_BLCP_T_L2_PDG-BLCP_T",
+      "pathId": "TPA_PDG_BLCP_T",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 38.1,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_GPD_C_L1_PDG-GPD_C",
+      "name": "500KV_PDG_GPD_C_L1_PDG-GPD_C",
+      "pathId": "TPA_PDG_GPD_C",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 5.29,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_GPD_C_L2_PDG-GPD_C",
+      "name": "500KV_PDG_GPD_C_L2_PDG-GPD_C",
+      "pathId": "TPA_PDG_GPD_C",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 5.29,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_BL2_L1_PDG-BL2",
+      "name": "500KV_PDG_BL2_L1_PDG-BL2",
+      "pathId": "TPA_PDG_BL2",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 23.33,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_BL2_L2_PDG-BL2",
+      "name": "500KV_PDG_BL2_L2_PDG-BL2",
+      "pathId": "TPA_PDG_BL2",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 23.33,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_GSRC_C_L1_PDG-GSRC_C",
+      "name": "500KV_PDG_GSRC_C_L1_PDG-GSRC_C",
+      "pathId": "TPA_PDG_GSRC_C",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 6.81,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_GSRC_C_L2_PDG-GSRC_C",
+      "name": "500KV_PDG_GSRC_C_L2_PDG-GSRC_C",
+      "pathId": "TPA_PDG_GSRC_C",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 6.81,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_CC2_L1_PDG-CC2",
+      "name": "500KV_PDG_CC2_L1_PDG-CC2",
+      "pathId": "TPA_PDG_CC2",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 69.24,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_CC2_L2_PDG-CC2",
+      "name": "500KV_PDG_CC2_L2_PDG-CC2",
+      "pathId": "TPA_PDG_CC2",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 69.24,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_PNS_L1_PDG-PNS",
+      "name": "500KV_PDG_PNS_L1_PDG-PNS",
+      "pathId": "TPA_PDG_PNS",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 76.19,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_PNS_L2_PDG-PNS",
+      "name": "500KV_PDG_PNS_L2_PDG-PNS",
+      "pathId": "TPA_PDG_PNS",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 76.19,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_CC2_L3_PDG-CC2_2",
+      "name": "500KV_PDG_CC2_L3_PDG-CC2 (2)",
+      "pathId": "TPA_PDG_CC2_2",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 69.24,
+      "energizedVoltage": "AC500KV"
+    },
+    {
+      "id": "TCC_500KV_PDG_CC2_L4_PDG-CC2_2",
+      "name": "500KV_PDG_CC2_L4_PDG-CC2 (2)",
+      "pathId": "TPA_PDG_CC2_2",
+      "voltage": "AC500KV",
+      "bundle": 4,
+      "conductor": {
+        "size": 1272,
+        "unit": "MCM",
+        "type": "ACSR/GA"
+      },
+      "lengthKm": 69.24,
+      "energizedVoltage": "AC500KV"
+    }
+  ],
+  "lines": [
+    {
+      "id": "TLN_230KV_PDG_BKI_L1",
+      "name": "230KV_PDG_BKI_L1",
+      "voltage": "AC230KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_230KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BKI_230KV"
+      },
+      "circuitIds": [
+        "TCC_230KV_PDG_BKI_L1_PDG-BKI"
+      ]
+    },
+    {
+      "id": "TLN_230KV_PDG_BKI_L2",
+      "name": "230KV_PDG_BKI_L2",
+      "voltage": "AC230KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_230KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BKI_230KV"
+      },
+      "circuitIds": [
+        "TCC_230KV_PDG_BKI_L2_PDG-BKI"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_BLCP_T_L1",
+      "name": "500KV_PDG_BLCP_T_L1",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BLCP_T_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_BLCP_T_L1_PDG-BLCP_T"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_BLCP_T_L2",
+      "name": "500KV_PDG_BLCP_T_L2",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BLCP_T_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_BLCP_T_L2_PDG-BLCP_T"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_GPD_C_L1",
+      "name": "500KV_PDG_GPD_C_L1",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GPD_C_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_GPD_C_L1_PDG-GPD_C"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_GPD_C_L2",
+      "name": "500KV_PDG_GPD_C_L2",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GPD_C_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_GPD_C_L2_PDG-GPD_C"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_BL2_L1",
+      "name": "500KV_PDG_BL2_L1",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BL2_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_BL2_L1_PDG-BL2"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_BL2_L2",
+      "name": "500KV_PDG_BL2_L2",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BL2_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_BL2_L2_PDG-BL2"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_GSRC_C_L1",
+      "name": "500KV_PDG_GSRC_C_L1",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GSRC_C_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_GSRC_C_L1_PDG-GSRC_C"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_GSRC_C_L2",
+      "name": "500KV_PDG_GSRC_C_L2",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GSRC_C_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_GSRC_C_L2_PDG-GSRC_C"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_CC2_L1",
+      "name": "500KV_PDG_CC2_L1",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_CC2_L1_PDG-CC2"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_CC2_L2",
+      "name": "500KV_PDG_CC2_L2",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_CC2_L2_PDG-CC2"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_PNS_L1",
+      "name": "500KV_PDG_PNS_L1",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PNS_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_PNS_L1_PDG-PNS"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_PNS_L2",
+      "name": "500KV_PDG_PNS_L2",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PNS_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_PNS_L2_PDG-PNS"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_CC2_L3",
+      "name": "500KV_PDG_CC2_L3",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_CC2_L3_PDG-CC2_2"
+      ]
+    },
+    {
+      "id": "TLN_500KV_PDG_CC2_L4",
+      "name": "500KV_PDG_CC2_L4",
+      "voltage": "AC500KV",
+      "from": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "to": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "circuitIds": [
+        "TCC_500KV_PDG_CC2_L4_PDG-CC2_2"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "TCN_PDG_230KV_230KV_BKI_L1",
+      "name": "230KV_BKI_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_230KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_230KV_230KV_BKI_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_230KV_PDG_BKI_L1_PDG-BKI",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC230KV"
+    },
+    {
+      "id": "TCN_BKI_230KV_230KV_PDG_L1",
+      "name": "230KV_PDG_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BKI_230KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_BKI_230KV_230KV_PDG_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_230KV_PDG_BKI_L1_PDG-BKI",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC230KV"
+    },
+    {
+      "id": "TCN_PDG_230KV_230KV_BKI_L2",
+      "name": "230KV_BKI_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_230KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_230KV_230KV_BKI_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_230KV_PDG_BKI_L2_PDG-BKI",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC230KV"
+    },
+    {
+      "id": "TCN_BKI_230KV_230KV_PDG_L2",
+      "name": "230KV_PDG_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BKI_230KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_BKI_230KV_230KV_PDG_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_230KV_PDG_BKI_L2_PDG-BKI",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC230KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_BLCP_T_L1",
+      "name": "500KV_BLCP_T_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_BLCP_T_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BLCP_T_L1_PDG-BLCP_T",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_BLCP_T_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BLCP_T_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_BLCP_T_500KV_500KV_PDG_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BLCP_T_L1_PDG-BLCP_T",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_BLCP_T_L2",
+      "name": "500KV_BLCP_T_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_BLCP_T_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BLCP_T_L2_PDG-BLCP_T",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_BLCP_T_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BLCP_T_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_BLCP_T_500KV_500KV_PDG_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BLCP_T_L2_PDG-BLCP_T",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_GPD_C_L1",
+      "name": "500KV_GPD_C_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_GPD_C_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GPD_C_L1_PDG-GPD_C",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_GPD_C_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GPD_C_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_GPD_C_500KV_500KV_PDG_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GPD_C_L1_PDG-GPD_C",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_GPD_C_L2",
+      "name": "500KV_GPD_C_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_GPD_C_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GPD_C_L2_PDG-GPD_C",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_GPD_C_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GPD_C_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_GPD_C_500KV_500KV_PDG_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GPD_C_L2_PDG-GPD_C",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_BL2_L1",
+      "name": "500KV_BL2_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_BL2_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BL2_L1_PDG-BL2",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_BL2_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BL2_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_BL2_500KV_500KV_PDG_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BL2_L1_PDG-BL2",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_BL2_L2",
+      "name": "500KV_BL2_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_BL2_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BL2_L2_PDG-BL2",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_BL2_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_BL2_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_BL2_500KV_500KV_PDG_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_BL2_L2_PDG-BL2",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_GSRC_C_L1",
+      "name": "500KV_GSRC_C_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_GSRC_C_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GSRC_C_L1_PDG-GSRC_C",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_GSRC_C_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GSRC_C_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_GSRC_C_500KV_500KV_PDG_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GSRC_C_L1_PDG-GSRC_C",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_GSRC_C_L2",
+      "name": "500KV_GSRC_C_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_GSRC_C_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GSRC_C_L2_PDG-GSRC_C",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_GSRC_C_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_GSRC_C_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_GSRC_C_500KV_500KV_PDG_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_GSRC_C_L2_PDG-GSRC_C",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_CC2_L1",
+      "name": "500KV_CC2_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_CC2_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L1_PDG-CC2",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_CC2_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_CC2_500KV_500KV_PDG_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L1_PDG-CC2",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_CC2_L2",
+      "name": "500KV_CC2_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_CC2_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L2_PDG-CC2",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_CC2_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_CC2_500KV_500KV_PDG_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L2_PDG-CC2",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_PNS_L1",
+      "name": "500KV_PNS_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_PNS_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_PNS_L1_PDG-PNS",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PNS_500KV_500KV_PDG_L1",
+      "name": "500KV_PDG_L1",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PNS_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PNS_500KV_500KV_PDG_L1"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_PNS_L1_PDG-PNS",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_PNS_L2",
+      "name": "500KV_PNS_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_PNS_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_PNS_L2_PDG-PNS",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PNS_500KV_500KV_PDG_L2",
+      "name": "500KV_PDG_L2",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PNS_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PNS_500KV_500KV_PDG_L2"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_PNS_L2_PDG-PNS",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_CC2_L3",
+      "name": "500KV_CC2_L3",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_CC2_L3"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L3_PDG-CC2_2",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_CC2_500KV_500KV_PDG_L3",
+      "name": "500KV_PDG_L3",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_CC2_500KV_500KV_PDG_L3"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L3_PDG-CC2_2",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_PDG_500KV_500KV_CC2_L4",
+      "name": "500KV_CC2_L4",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_PDG_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_PDG_500KV_500KV_CC2_L4"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L4_PDG-CC2_2",
+          "terminal": "FROM"
+        }
+      ],
+      "voltage": "AC500KV"
+    },
+    {
+      "id": "TCN_CC2_500KV_500KV_PDG_L4",
+      "name": "500KV_PDG_L4",
+      "scope": "TRANSMISSION",
+      "junction": {
+        "kind": "SUBSTATION",
+        "id": "SSY_CC2_500KV"
+      },
+      "nodes": [
+        {
+          "kind": "SUBSTATION_TAKE_OFF",
+          "id": "STO_CC2_500KV_500KV_PDG_L4"
+        },
+        {
+          "kind": "TRANSMISSION_CIRCUIT",
+          "id": "TCC_500KV_PDG_CC2_L4_PDG-CC2_2",
+          "terminal": "TO"
+        }
+      ],
+      "voltage": "AC500KV"
+    }
+  ],
+  "description": "PDG (Pluak Daeng Substation), the lines connected to it and the sites one line away: BKI, BL2, BLCP_T, CC2, GPD_C, GSRC_C, PNS. Taken from the network egat (revision 428) by npm run sample:grid.",
+  "paths": [
+    {
+      "id": "TPA_PDG_BKI",
+      "name": "PDG-BKI",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_BKI"
+      },
+      "waypoints": [
+        {
+          "latitude": 12.971685,
+          "longitude": 101.191978
+        },
+        {
+          "latitude": 12.95982,
+          "longitude": 101.211805
+        },
+        {
+          "latitude": 12.99176,
+          "longitude": 101.24691
+        },
+        {
+          "latitude": 12.944026,
+          "longitude": 101.303043
+        }
+      ]
+    },
+    {
+      "id": "TPA_PDG_BLCP_T",
+      "name": "PDG-BLCP_T",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_BLCP_T"
+      },
+      "waypoints": [
+        {
+          "latitude": 12.911544,
+          "longitude": 101.151466
+        },
+        {
+          "latitude": 12.82603,
+          "longitude": 101.222534
+        }
+      ]
+    },
+    {
+      "id": "TPA_PDG_GPD_C",
+      "name": "PDG-GPD_C",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_GPD_C"
+      },
+      "waypoints": []
+    },
+    {
+      "id": "TPA_PDG_BL2",
+      "name": "PDG-BL2",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_BL2"
+      },
+      "waypoints": []
+    },
+    {
+      "id": "TPA_PDG_GSRC_C",
+      "name": "PDG-GSRC_C",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_GSRC_C"
+      },
+      "waypoints": [
+        {
+          "latitude": 13.028471,
+          "longitude": 101.214811
+        }
+      ]
+    },
+    {
+      "id": "TPA_PDG_PNS",
+      "name": "PDG-PNS",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PNS"
+      },
+      "waypoints": [
+        {
+          "latitude": 13.097202,
+          "longitude": 101.228199
+        },
+        {
+          "latitude": 13.150878,
+          "longitude": 101.3286
+        }
+      ]
+    },
+    {
+      "id": "TPA_PDG_CC2_2",
+      "name": "PDG-CC2 (2)",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_CC2"
+      },
+      "waypoints": [
+        {
+          "latitude": 13.036328,
+          "longitude": 101.23146
+        },
+        {
+          "latitude": 13.138152,
+          "longitude": 101.282096
+        },
+        {
+          "latitude": 13.192044,
+          "longitude": 101.249917
+        },
+        {
+          "latitude": 13.560022,
+          "longitude": 101.269826
+        }
+      ]
+    },
+    {
+      "id": "TPA_PDG_CC2",
+      "name": "PDG-CC2",
+      "from": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_PDG"
+      },
+      "to": {
+        "kind": "SUBSTATION_GROUP",
+        "id": "SSG_CC2"
+      },
+      "waypoints": [
+        {
+          "latitude": 13.146329,
+          "longitude": 101.154546
+        },
+        {
+          "latitude": 13.435735,
+          "longitude": 101.221484
+        }
+      ]
+    }
+  ],
+  "yardConnections": [],
+  "generationUnits": [
+    {
+      "id": "SGU_BLCP_T_Block_1",
+      "groupId": "SSG_BLCP_T",
+      "name": "Block 1",
+      "generationType": "THERMAL",
+      "capacityMw": 673.25
+    },
+    {
+      "id": "SGU_BLCP_T_Block_2",
+      "groupId": "SSG_BLCP_T",
+      "name": "Block 2",
+      "generationType": "THERMAL",
+      "capacityMw": 673.25
+    }
+  ]
+}

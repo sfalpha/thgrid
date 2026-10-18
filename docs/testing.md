@@ -443,3 +443,12 @@ On the busy area (section 3): JP passes the two 230 kV lines MA – MC, JX the 5
 | SC-9 | at MS's site junction, `230KV_MA_ME_L1` into MS itself | its 230 kV yard through new take-offs `230KV_MA_L1` and `230KV_ME_L2`, no new circuit or path; the splice gone, the junction kept (other lines end there); the line split into `230KV_MA_ME_L1` and `230KV_MS_ME_L2` |
 | SC-10 | the quiet 230 kV line routed via SV's site junction, then into SV, a free take-off `230KV_QA_L1` at SV | the free take-off used toward QA, a new `230KV_QB_L1` toward QB; the empty site junction removed; the line split into `230KV_QA_QB_L1` + `230KV_SV_QB_L1` |
 | SC-11 | into its own site refused | MS has no 500 kV yard (the 500 kV line stays spliced); its site junction asked for |
+
+## 7. A part of a network around a site (`extractAround`, `web/test/extract.test.ts`) – automated
+
+What `npm run sample:grid` takes from the EGAT network, on the busy area. Both cases check that the parts validate.
+
+| Id | Case | Current result |
+|---|---|---|
+| EX-1 | MA, one line away | the sites MB, MC, MD, ME, MS one line away; every line from MA and no other; JP (on the way to MC) and MS's site junction (MA – ME through it) kept, JQ and JX left out; connections hold kept circuit ends only; every yard of the kept sites |
+| EX-2 | MB, one and two lines away | one: MA, ME; two: MC, MD, MS besides, more lines, still only the busy area |

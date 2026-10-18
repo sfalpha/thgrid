@@ -57,6 +57,7 @@ Shared code used by the backend **and** the UI lives in `src/templates`
 npm install
 npm run seed          # optional: populate data/ with the EGAT standard set
 npm run seed:fixture  # optional: the test fixture as network test_fixture, replaced on every run
+npm run sample:grid   # optional: take the sample grid anew from the egat network (PDG and one line away)
 npm run dev           # backend (tsx watch, :3300) + Vite dev server (:5173) together
 npm run dev:server    # backend only
 npm run build         # tsc → dist/, vite build → web/dist/
@@ -239,10 +240,30 @@ transformers (230/115/22 kV 200 MVA; 500/230 kV banks 3×333 MVA FA and 3×200
 MVA ONAF with 22 or 24 kV tertiary), the collection `egat_standard` (items ordered from the smaller conductors to the
 larger: conductors by size, circuits by voltage, conductor size and bundle; the
 template pickers in the editors follow this order) and a
-`sample_grid` network (CNO 230 kV yard with one wired bay, a junction and one
-circuit section).
+`sample_grid` network, written from `scripts/sample-grid.json` (see
+`npm run sample:grid`: PDG, the lines connected to it and the sites one line
+away, taken from the EGAT network).
 Existing files are skipped unless `--force` is passed. The script validates
 every record with the shared validators before writing.
+
+### `npm run sample:grid` (`scripts/sample-grid.ts`)
+
+Takes the sample grid from a network: a site, every line connected to it (at
+its yards or its site junction, with all their sections) and the sites and
+line junctions those lines reach (`extractAround` in
+`src/network/extract.ts`), by default PDG (Pluak Daeng) and one line away in
+the network `egat` (`-- --site <code> --hops <n> --from <network id>`; with
+more hops the lines of the sites reached are added ring by ring). The sites
+keep their yards, in-yard records and generation units; take-offs only where a
+kept circuit leaves through them (all of the centre's); a site junction only
+with a kept circuit end at it; connections at line junctions keep the kept
+circuit ends; an extension whose parent is left out becomes a site of its own.
+The source is read as last saved (unsaved journal entries are named and left
+out). The result is validated, written to `scripts/sample-grid.json` (what
+`npm run seed` seeds `sample_grid` from) and replaces the `sample_grid`
+network: through the API when the backend runs (an import with overwrite: the
+old version archived, the journal discarded), else in `data/networks`
+(archived too).
 
 ### `npm run seed:fixture` (`scripts/seed-fixture.ts`)
 
