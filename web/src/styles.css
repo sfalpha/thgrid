@@ -1523,6 +1523,21 @@ pre {
     opacity: .85;
 }
 
+/* "Sites" off (Map features): the site circles are hidden, except while hovered, selected or picked; the marker still
+   takes clicks and hovering. */
+.leaflet-map.no-site-circles .map-marker.site:not(:hover):not(.selected):not(.pick) {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+/* "Junction areas" off: the areas are hidden, except while the junction is hovered (any part of it), selected or picked;
+   an area still takes clicks and hovering. */
+.leaflet-map.no-junction-areas path.junction-area:not(.hovered):not(.area-on) {
+    fill-opacity: 0;
+    stroke-opacity: 0;
+}
+
 .tag.planned {
     border-style: dashed;
     color: var(--muted);

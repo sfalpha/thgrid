@@ -477,8 +477,13 @@ immediately.
   remembered by the browser, `thgrid.mapFeatures`, which takes over the old
   `thgrid.mapDetails` once): *Site details* (see above), *Site labels* (off:
   a label shows only while hovering, or for the selected / picked site),
-  *Junction areas* (off: only the connectors, which still select the
-  junction), *Paths without circuits* (the selected or edited one is always
+  *Sites* (off: the site circles are hidden, a class on the map container so
+  nothing is drawn again; hovering where one is shows it again, as does
+  selecting or picking the site, and a site still answers clicks there),
+  *Junction areas* (off: the areas are hidden, a class on the map container
+  like *Sites*; hovering any part of a junction, its area, connectors or
+  handle, shows its area again, as does selecting or picking it, and an area
+  still answers clicks), *Paths without circuits* (the selected or edited one is always
   drawn), *Planned* (off: planned sites, circuits and connections are left
   out, and parallel lanes close up), *Below 500 kV* and *Below 230 kV* (off:
   circuits running below that voltage, by energized else rated voltage, and

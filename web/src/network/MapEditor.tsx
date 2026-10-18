@@ -341,7 +341,9 @@ interface MapFeatures {
     details: boolean
     /** Site labels are shown (off: only while hovering, or for the selected / picked site). */
     labels: boolean
-    /** The blue junction areas behind the lines (off: only the connectors; clicking them still selects the junction). */
+    /** Site circles are shown (toggle "Sites"; off: hidden unless the site is hovered, selected or picked; the site still answers clicks there). */
+    siteCircles: boolean
+    /** The blue junction areas behind the lines (off: hidden unless the junction is hovered, selected or picked; an area still answers clicks). */
     junctions: boolean
     /** Paths without circuits, as grey dashed routes. */
     unusedPaths: boolean
@@ -360,13 +362,14 @@ interface MapFeatures {
 const MAP_FEATURES_KEY = 'thgrid.mapFeatures'
 /** The old key of the details toggle, read once so the setting carries over. */
 const MAP_DETAILS_KEY = 'thgrid.mapDetails'
-const DEFAULT_MAP_FEATURES: MapFeatures = {details: false, labels: true, junctions: true, unusedPaths: true, planned: true, lowVoltage: true, below500: true, baseMap: true, open: true}
+const DEFAULT_MAP_FEATURES: MapFeatures = {details: false, labels: true, siteCircles: true, junctions: true, unusedPaths: true, planned: true, lowVoltage: true, below500: true, baseMap: true, open: true}
 
 /** A map feature toggle; `off` gives why it does nothing with the other toggles as they are (it is shown disabled then). */
 const MAP_FEATURE_TOGGLES: { key: Exclude<keyof MapFeatures, 'open'>; label: string; title: string; off?: (f: MapFeatures) => string | undefined }[] = [
     {key: 'details', label: 'Site details', title: "Site labels show the site name and each yard's voltage, one line per yard (off: yard symbols next to the code)"},
     {key: 'labels', label: 'Site labels', title: 'Off: a site label shows only while hovering it, or when the site is selected'},
-    {key: 'junctions', label: 'Junction areas', title: 'The blue area of a line junction behind the lines (off: only its connectors, which still select the junction)'},
+    {key: 'siteCircles', label: 'Sites', title: 'Off: the site circles are hidden; hovering where one is shows it again, as does selecting or picking the site, and a site still answers clicks there'},
+    {key: 'junctions', label: 'Junction areas', title: 'The blue area of a line junction behind the lines (off: hidden; hovering the junction shows it again, as does selecting or picking it, and it still answers clicks)'},
     {key: 'unusedPaths', label: 'Paths without circuits', title: 'Routes no circuit uses yet, grey dashed'},
     {key: 'planned', label: 'Planned', title: 'Planned sites, circuits and connections (dotted, dull colours)'},
     {key: 'below500', label: 'Below 500 kV', title: 'Off: circuits running below 500 kV (energized, else rated voltage) and sites whose yards are all below 500 kV are hidden: the 500 kV grid alone'},
@@ -778,7 +781,11 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             const area = key.startsWith('J:') ? drawn.areas.get(key.slice(2)) : undefined
             if (area) {
                 area.setStyle(key === selKey ? AREA_SELECTED_STYLE : AREA_PICKED_STYLE)
-                drawn.restore.push(() => area.setStyle(AREA_STYLE))
+                area.getElement()?.classList.add('area-on')
+                drawn.restore.push(() => {
+                    area.setStyle(AREA_STYLE)
+                    area.getElement()?.classList.remove('area-on')
+                })
             }
         }
 
@@ -862,6 +869,12 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             tileRef.current = null
         }
     }, [onMapClick])
+
+    // Site circles and junction areas follow their toggles: classes on the map container, nothing drawn again.
+    useEffect(() => {
+        containerRef.current?.classList.toggle('no-site-circles', !features.siteCircles)
+        containerRef.current?.classList.toggle('no-junction-areas', !features.junctions)
+    }, [features.siteCircles, features.junctions])
 
     // The base map follows its toggle.
     useEffect(() => {
@@ -1244,7 +1257,12 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         }
         /** A right-click on a junction: in "+ Line" mode takes it out of the line again, in "+ Path" / "+ Circuit" mode out of the ends. */
         const rightClickJunction = (jid: string) => dropDrawn(`J:${jid}`)
-        /** Binds the junction's click and right-click to a layer drawn for it (area, connector, stub). */
+        /** Hovering a layer drawn for a junction (area, connector, stub, handle) shows its area, also while the areas are off. */
+        const hoverShowsArea = (l: L.Layer, jid: string) => {
+            l.on('mouseover', () => drawn.areas.get(jid)?.getElement()?.classList.add('hovered'))
+            l.on('mouseout', () => drawn.areas.get(jid)?.getElement()?.classList.remove('hovered'))
+        }
+        /** Binds the junction's click, right-click and hover to a layer drawn for it (area, connector, stub). */
         const onJunction = (l: L.Layer, jid: string) => {
             l.on('click', e => {
                 L.DomEvent.stopPropagation(e)
@@ -1254,12 +1272,14 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
                 L.DomEvent.stop(e)
                 rightClickJunction(jid)
             })
+            hoverShowsArea(l, jid)
         }
         const toLL = (pts: L.Point[]) => pts.map(pt => map.layerPointToLatLng(pt))
 
-        // The junction areas (toggle "Junction areas"): the circle the lanes stop on, in a pane under the lines.
-        if (features.junctions) for (const j of ringJunctions.values()) {
-            const area = L.circleMarker(toLatLng(j.coords), {radius: areaRadius.get(j.id)!, pane: 'junctionAreas', ...AREA_STYLE, fillColor: JUNCTION_COLOR, fillOpacity: JUNCTION_FILL_OPACITY})
+        // The junction areas: the circle the lanes stop on, in a pane under the lines (toggle "Junction areas" off: hidden by
+        // the class no-junction-areas, unless hovered, selected or picked).
+        for (const j of ringJunctions.values()) {
+            const area = L.circleMarker(toLatLng(j.coords), {radius: areaRadius.get(j.id)!, pane: 'junctionAreas', className: 'junction-area', ...AREA_STYLE, fillColor: JUNCTION_COLOR, fillOpacity: JUNCTION_FILL_OPACITY})
             area.bindTooltip(esc(j.name ?? j.id), {sticky: true, className: 'map-label'})
             onJunction(area, j.id)
             area.addTo(layer)
@@ -1458,8 +1478,10 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             // Junctions stay quiet: the label is shown only while the junction is selected or picked as a circuit end (the
             // overlay); hovering reveals the summary.
             // No symbol: the area (behind the lines) shows the junction; an invisible handle in its middle drags it and shows the summary.
-            drawn.markers.set(`J:${j.id}`, marker(j.coords, 'junction', '', JUNCTION_HIT_PX, label, () => clickJunction(j.id),
-                coords => edRef.current.apply([{type: 'upsert', collection: 'junctions', record: {...j, coords}}]), summary, false, {html: '<div class="junction-hit"></div>', className: ''}, () => rightClickJunction(j.id)))
+            const handle = marker(j.coords, 'junction', '', JUNCTION_HIT_PX, label, () => clickJunction(j.id),
+                coords => edRef.current.apply([{type: 'upsert', collection: 'junctions', record: {...j, coords}}]), summary, false, {html: '<div class="junction-hit"></div>', className: ''}, () => rightClickJunction(j.id))
+            hoverShowsArea(handle.marker, j.id)
+            drawn.markers.set(`J:${j.id}`, handle)
         }
 
         // First draw: zoom just enough to cover the sites. Deferred like the invalidateSize above: the container has
@@ -1471,7 +1493,7 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         // the overlay on the new drawing; a selected record left out may have to be kept
         drawOverlay()
         syncKeep()
-    }, [ed.doc, keep, zoomTick, features.details, features.labels, features.junctions, features.unusedPaths, features.planned, features.lowVoltage, features.below500, changeLineDraft, onMapClick, drawOverlay, syncKeep])
+    }, [ed.doc, keep, zoomTick, features.details, features.labels, features.unusedPaths, features.planned, features.lowVoltage, features.below500, changeLineDraft, onMapClick, drawOverlay, syncKeep])
 
     // The selection, the mode and the drafts change the overlay only; the network drawing stays.
     useEffect(() => {
