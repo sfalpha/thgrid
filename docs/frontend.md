@@ -353,7 +353,18 @@ immediately.
   Template pickers (`useTemplates`) are the exception: they follow the order
   of the collections, as returned by the API, so the EGAT standard set runs
   from the smaller conductors to the larger ones; templates that belong to no
-  collection follow alphabetically.
+  collection follow alphabetically. Circuit template pickers (the line and
+  circuit wizards, the circuit panel's *Apply circuit template*;
+  `CircuitTemplateSelect`, `useTemplateRecords`, `circuitTemplateGroups` in
+  `templateOrder.ts`) group them by rated voltage for the yards the circuit
+  connects to (the wizards' chosen yards, the circuit's ends at yards): the
+  yards' voltages first, highest first; then the voltages rated above them
+  (*rated above the yards (runs below its rating)*), the closest first; last,
+  the unsuitable ones (*not for these yards*: below a connected yard's
+  voltage, or the other current type), then templates without a voltage.
+  Without a yard to go by (junction ends) every voltage is listed, highest
+  first. Within a group the collections' order holds, and a template is named
+  without its voltage prefix (`2x1272MCM_ACSR_GA`; the full name as a tooltip).
 * Initial view: the centre and zoom the network was last shown at are
   remembered per network in `localStorage` (`thgrid.mapView.<network id>`,
   written on every `moveend`) and restored when the map view is opened

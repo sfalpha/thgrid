@@ -94,6 +94,8 @@ export const api = {
 
     templates: {
         list: (kind?: TemplateKind) => request<TemplateSummary[]>('GET', `/api/templates${q({kind})}`),
+        /** The templates of a kind with their data (for pickers that group or sort by it). */
+        records: <K extends TemplateKind>(kind: K) => request<TemplateRecord<K>[]>('GET', `/api/templates/${kind}?data=true`),
         get: <K extends TemplateKind>(kind: K, id: string) => request<TemplateRecord<K>>('GET', `/api/templates/${kind}/${id}`),
         create: <K extends TemplateKind>(kind: K, input: TemplateInput<K>) => request<TemplateRecord<K>>('POST', `/api/templates/${kind}`, input),
         update: <K extends TemplateKind>(kind: K, id: string, input: TemplateInput<K>) => request<TemplateRecord<K>>('PUT', `/api/templates/${kind}/${id}`, input),

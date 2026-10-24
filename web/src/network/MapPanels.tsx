@@ -48,9 +48,10 @@ import {atPathEnd, pathEndOf} from '@shared/network/refs'
 import {moveSiteOps, newSiteJunctionRecord, siteJunctionOf} from '@shared/network/siteJunction'
 import {extensionLinkProblem, extensionsOf, parentSiteOf, setExtensionOfOps, suggestedParentSite} from '@shared/network/extensions'
 import {api, MetaResponse} from '../api/client'
-import {useTemplates} from '../hooks/useTemplates'
+import {useTemplateRecords, useTemplates} from '../hooks/useTemplates'
+import {circuitTemplateGroups} from './templateOrder'
 import {hrefTo} from '../hooks/useHashRoute'
-import {CheckboxField, enumLabel, NumberField, SelectField, TextAreaField, TextField} from '../components/fields'
+import {CheckboxField, enumLabel, Field, NumberField, SelectField, TextAreaField, TextField} from '../components/fields'
 import {Notice} from '../components/IssueList'
 import {Selection, useDraftGuard, useNetworkEditor} from './NetworkContext'
 import {FindPanel} from './FindPanel'
@@ -2202,6 +2203,35 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
     )
 }
 
+/**
+ * A circuit template picker grouped for the yards the circuit connects to (`circuitTemplateGroups`): one group per
+ * voltage, the yards' voltages first (highest first), then the templates rated above them, the unsuitable ones (below
+ * a connected yard's voltage, another current type) last; within a group the collections' order (the smaller
+ * conductors first), each template named without its voltage prefix, which its group gives.
+ */
+function CircuitTemplateSelect({label, value, onChange, yardVoltages, emptyLabel, className, hint}: {
+    label: string; value?: string; onChange: (id: string | undefined) => void
+    /** Voltages of the yards the circuit connects to (unknown ends left out); none: every voltage, highest first. */
+    yardVoltages: (TransmissionVoltage | undefined)[]
+    emptyLabel?: string; className?: string; hint?: string
+}) {
+    const {templates, loading} = useTemplateRecords(TemplateKind.TRANSMISSION_CIRCUIT)
+    const groups = circuitTemplateGroups(templates, yardVoltages)
+    const short = (name: string) => name.replace(/^TCT_\d+KV(?:DC)?_/i, '')
+    return (
+        <Field label={label} className={className} hint={hint ?? (!loading && !templates.length ? 'No circuit templates yet' : undefined)}>
+            <select value={value ?? ''} onChange={e => onChange(e.target.value || undefined)}>
+                <option value="">{emptyLabel ?? '(none)'}</option>
+                {groups.map(g => (
+                    <optgroup key={g.label} label={g.label}>
+                        {g.items.map(t => <option key={t.id} value={t.id} title={t.data.name}>{short(t.data.name)}</option>)}
+                    </optgroup>
+                ))}
+            </select>
+        </Field>
+    )
+}
+
 /* ---------- conductor ---------- */
 
 /** The conductor values a circuit keeps: copied from a TRANSMISSION_CONDUCTOR template (the record stays self-describing). */
@@ -2414,7 +2444,6 @@ function SiteJunctionAttach({circuit, end, site, nodeId, setNodeId}: {
 function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record: TransmissionCircuitRecord }) {
     const ed = useNetworkEditor()
     const d = useDraft(record)
-    const {templates} = useTemplates(TemplateKind.TRANSMISSION_CIRCUIT)
     const route = ed.doc.paths.find(p => p.id === record.pathId)
     const routeUsers = ed.doc.circuits.filter(c => c.pathId === record.pathId)
     const [pathName, setPathName] = useState(route?.name ?? '')
@@ -2545,11 +2574,15 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
                 <TextField label="Name" value={d.draft.name} onChange={v => d.set('name', v)} className="span-all" hint={auto && auto.name !== d.draft.name ? `Rule name: ${auto.name}` : undefined}
                            action={{label: 'auto', title: auto ? `Use the rule name ${auto.name}` : 'No rule name without ends', disabled: !auto || auto.name === d.draft.name, onClick: () => auto && d.set('name', auto.name)}}/>
                 {pickingTemplate && (
-                    <SelectField label="Apply circuit template" value={undefined} emptyLabel="choose a template…" options={templates.map(t => ({value: t.id, label: t.name}))} className="span-all"
-                                 onChange={v => {
-                                     setPickingTemplate(false)
-                                     if (v) void applyTemplate(v)
-                                 }} hint="Replaces the rated voltage, bundle and conductor values with the template's (applied with Apply)"/>
+                    <CircuitTemplateSelect label="Apply circuit template" value={undefined} emptyLabel="choose a template…" className="span-all"
+                                           yardVoltages={[CIRCUIT_END_FROM, CIRCUIT_END_TO].map(end => {
+                                               const conn = circuitEndConnection(ed.doc, record.id, end)
+                                               return conn?.junction.kind === ConnectionJunctionKind.SUBSTATION ? ed.doc.substations.find(y => y.id === conn.junction.id)?.voltage : undefined
+                                           })}
+                                           onChange={v => {
+                                               setPickingTemplate(false)
+                                               if (v) void applyTemplate(v)
+                                           }} hint="Replaces the rated voltage, bundle and conductor values with the template's (applied with Apply)"/>
                 )}
                 <SelectField label="Rated voltage" value={d.draft.voltage} options={meta.enums.transmissionVoltage} allowEmpty onChange={v => d.set('voltage', v as TransmissionVoltage | undefined)}
                              hint="Design voltage of the circuit (from the template)"/>
@@ -2719,7 +2752,6 @@ const NEW_PATH = '__new_path__'
 function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResponse; locate?: (sel: Selection) => void; draft: LineDraft; setDraft: Dispatch<SetStateAction<LineDraft>>; onDone: () => void }) {
     const ed = useNetworkEditor()
     const doc = ed.doc
-    const {templates} = useTemplates(TemplateKind.TRANSMISSION_CIRCUIT)
     // The ends, the stops and the voltage live in the map editor (`LineDraft`), so clicking sites and junctions on the map sets them too.
     const {from, to, vias, voltage} = draft
     // the yard picked last leads: the other end's yard follows to the same voltage where its site has one
@@ -2851,8 +2883,8 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
                         </div>
                     ))}
                 </div>
-                <SelectField label="Circuit template" value={templateId} options={templates.map(t => ({value: t.id, label: t.name}))} allowEmpty onChange={v => void pickTemplate(v)} className="span-all"
-                             emptyLabel={templates.length ? 'none (a template fills voltage, bundle and conductor)' : 'none (no circuit templates yet)'}/>
+                <CircuitTemplateSelect label="Circuit template" value={templateId} onChange={v => void pickTemplate(v)} className="span-all" yardVoltages={[fromYard?.voltage, toYard?.voltage]}
+                                       emptyLabel="none (a template fills voltage, bundle and conductor)"/>
                 <SelectField label="Voltage (rated)" value={voltage} options={meta.enums.transmissionVoltage} allowEmpty onChange={setVoltage} className="span-3"/>
                 {/* empty: the voltage the yards bring (0 V when both ends are junctions); e.g. 0V (De-Energized) for a line built but not in service */}
                 <SelectField label="Energized voltage" value={energizedVoltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={plan.energizedVoltage && !energizedVoltage ? `from the ends: ${plan.energizedVoltage}` : 'from the ends'}
@@ -3288,7 +3320,6 @@ const EMPTY_END_CHOICE: CircuitEndChoice = {connectionName: '', connectionId: ''
 function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsProps) {
     const ed = useNetworkEditor()
     const doc = ed.doc
-    const {templates} = useTemplates(TemplateKind.TRANSMISSION_CIRCUIT)
     /** Choices per place (`G:` / `J:` key): they follow an end when the ends are swapped; a newly picked place starts fresh. */
     const [choices, setChoices] = useState<Record<string, CircuitEndChoice>>({})
     const choiceAt = (place: string) => choices[place] ?? EMPTY_END_CHOICE
@@ -3382,8 +3413,8 @@ function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsPro
             <div className="form-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
                 <TextField label="Name" value={name} onChange={setName} placeholder={plan.autoCircuit?.name ?? 'from the voltage and the path'} hint="Left empty: the rule name (<kV>_<path>_S<n>)" className="span-all"/>
                 <NewIdField value={circuitId} onChange={setCircuitId} auto={plan.autoCircuit ? uniqueId(doc, plan.autoCircuit.id) : undefined} className="span-all"/>
-                <SelectField label="Template" value={templateId} options={templates.map(t => ({value: t.id, label: t.name}))} allowEmpty onChange={v => void pickTemplate(v)} className="span-all"
-                             hint={templates.length ? 'Fills voltage, bundle and conductor' : 'No circuit templates yet'}/>
+                <CircuitTemplateSelect label="Template" value={templateId} onChange={v => void pickTemplate(v)} className="span-all" yardVoltages={[plan.from.yard?.voltage, plan.to.yard?.voltage]}
+                                       hint="Fills voltage, bundle and conductor"/>
                 <SelectField label="Voltage (rated)" value={voltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={`from the ends (${suggestedVoltage ? enumLabel(suggestedVoltage) : '–'})`} onChange={setVoltage}/>
                 <NumberField label="Bundle" value={bundle} min={1} step={1} onChange={setBundle}/>
                 <ConductorFields meta={meta} value={conductor} onChange={setConductor}/>

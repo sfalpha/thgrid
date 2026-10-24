@@ -43,6 +43,12 @@ export class TemplateService {
         return records.map(toTemplateSummary).sort((a, b) => a.name.localeCompare(b.name))
     }
 
+    /** The whole records, data included (for pickers that sort by it), sorted by name. */
+    async listRecords(kind?: TemplateKind): Promise<TemplateRecord[]> {
+        const records = kind ? await this.templates.list(kind) : await this.templates.listAll()
+        return [...records].sort((a, b) => a.data.name.localeCompare(b.data.name))
+    }
+
     async get<K extends TemplateKind>(kind: K, id: string): Promise<TemplateRecord<K>> {
         const record = await this.templates.get(kind, id)
         if (!record) throw new NotFoundError(`Template ${kind}/${id}`)

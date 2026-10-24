@@ -466,3 +466,12 @@ On the busy area. Every case checks that the result validates and names stay uni
 | DL-5 | `115KV_MD_JQ_L1` (open at JQ) off its take-off at MD | fed from nowhere: 0 V, its open node at JQ too |
 | DL-6 | the same, the line teed into the 230 kV splice at JQ | still fed through the tee: nothing set to 0 V |
 | DL-7 | the de-energized `230KV_MA_MC_L3` off both ends; nothing checked | already at 0 V, nothing to flip; refused |
+
+## 10. Circuit template pickers (`circuitTemplateGroups`, `web/test/templateOrder.test.ts`) – automated
+
+| Id | Case | Current result |
+|---|---|---|
+| TO-1 | a line between two 230 kV yards | 230 kV first (the templates in the order given), then 500 kV (rated above the yards), last 300 kV DC, 115, 33, 22 kV (not for these yards) and no voltage |
+| TO-2 | no yard (junction ends) | every voltage, highest first, no voltage last |
+| TO-3 | ends at 230 and 115 kV yards | 230 kV first, then 500 kV; 115 kV unsuitable (below the 230 kV yard) |
+| TO-4 | a 115 kV yard and a de-energized end | the 0 V end tells nothing: 115 kV, then 230 and 500 kV (closest rating first) |

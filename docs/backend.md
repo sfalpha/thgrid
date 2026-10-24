@@ -163,8 +163,8 @@ Issue paths for template payloads are prefixed `data.` (e.g.
 
 | Method & path | Body | Success | Notes |
 |---|---|---|---|
-| `GET /api/templates` | – | 200 `TemplateSummary[]` | all kinds, sorted by name; `?kind=K` filters |
-| `GET /api/templates/:kind` | – | 200 `TemplateSummary[]` | |
+| `GET /api/templates` | – | 200 `TemplateSummary[]` | all kinds, sorted by name; `?kind=K` filters; `?data=true`: whole `TemplateRecord[]`, data included |
+| `GET /api/templates/:kind` | – | 200 `TemplateSummary[]` | `?data=true`: whole `TemplateRecord[]` (the circuit template pickers group by their voltage) |
 | `POST /api/templates/:kind` | `TemplateInput` | 201 `TemplateRecord` + `Location` | id from body or derived from `data.name`; 409 if it exists |
 | `POST /api/templates/:kind/validate` | `TemplateInput` | 200 `{ valid, issues }` | never writes |
 | `GET /api/templates/:kind/:id` | – | 200 `TemplateRecord` | |

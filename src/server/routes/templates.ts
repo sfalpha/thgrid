@@ -5,8 +5,8 @@ import {isTemplateKind} from "../../templates/template";
 import {BadRequestError} from "../errors";
 
 /**
- * GET    /api/templates                     list all kinds   (?kind=K to filter)
- * GET    /api/templates/:kind               list one kind
+ * GET    /api/templates                     list all kinds   (?kind=K to filter; ?data=true: whole records)
+ * GET    /api/templates/:kind               list one kind    (?data=true: whole records, data included)
  * POST   /api/templates/:kind               create
  * POST   /api/templates/:kind/validate      validate without saving -> { issues }
  * GET    /api/templates/:kind/:id           record
@@ -22,14 +22,15 @@ export function templatesRouter(service: TemplateService): Router {
         const kindParam = req.query.kind
         if (kindParam !== undefined) {
             if (typeof kindParam !== 'string' || !isTemplateKind(kindParam)) throw new BadRequestError(`Unknown template kind "${String(kindParam)}"`)
-            res.json(await service.list(kindParam))
+            res.json(queryFlag(req.query.data) ? await service.listRecords(kindParam) : await service.list(kindParam))
             return
         }
-        res.json(await service.list())
+        res.json(queryFlag(req.query.data) ? await service.listRecords() : await service.list())
     }))
 
     router.get('/:kind', asyncHandler(async (req, res) => {
-        res.json(await service.list(TemplateService.parseKind(req.params.kind)))
+        const kind = TemplateService.parseKind(req.params.kind)
+        res.json(queryFlag(req.query.data) ? await service.listRecords(kind) : await service.list(kind))
     }))
 
     router.post('/:kind', asyncHandler(async (req, res) => {
