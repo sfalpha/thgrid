@@ -233,14 +233,18 @@ backend instead.
 
 ### `npm run seed` (`scripts/seed.ts`)
 
-Writes the EGAT standard set: 11 conductors (1272 / 795 / 477 MCM, ACSR/GA and
-ACSR/AW, 477 MCM AAC, and 1272 / 795 MCM HTLS/INVAR and HTLS/ACCC), 44 line
-circuits (500 kV ×1, 230 kV ×18, 115 kV ×25: ACSR in the usual bundles plus
-HTLS 1× / 2× / 4× of both sizes and core types at 115 and 230 kV), 5 power
+Writes the EGAT standard set: 25 conductors (1272 / 795 / 477 MCM, ACSR/GA and
+ACSR/AW, 477 MCM AAC, and 1272 / 795 MCM HTLS/INVAR and HTLS/ACCC; AAC 25, 50,
+95, 185, 200 and 400 sq.mm; XLPE cable 35, 50, 150, 300, 400, 500, 630 and 800
+sq.mm), 83 line circuits (500 kV ×1, 230 kV ×18, 115 kV ×32: ACSR in the usual
+bundles plus HTLS 1× / 2× / 4× of both sizes and core types at 115 and 230 kV,
+and XLPE 300 – 800 sq.mm, 800 also 2× and 4×; 22 kV and 33 kV ×16 each: AAC
+25 – 400 sq.mm, 400 also 2×, and XLPE 35 – 800 sq.mm, 800 also 2×), 5 power
 transformers (230/115/22 kV 200 MVA; 500/230 kV banks 3×333 MVA FA and 3×200
 MVA ONAF with 22 or 24 kV tertiary), the collection `egat_standard` (items ordered from the smaller conductors to the
-larger: conductors by size, circuits by voltage, conductor size and bundle; the
-template pickers in the editors follow this order) and a
+larger: conductors by cross-section, MCM and sq.mm compared in sq.mm, circuits by voltage, conductor size and
+bundle; the template pickers in the editors follow this order; an existing collection takes in the templates a run
+adds, in that order, its other items kept) and a
 `sample_grid` network, written from `scripts/sample-grid.json` (see
 `npm run sample:grid`: PDG, the lines connected to it and the sites one line
 away, taken from the EGAT network).

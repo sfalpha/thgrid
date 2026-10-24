@@ -17,7 +17,7 @@ import {slugifyTemplateId, TemplateKind, TemplateRecord} from "../src/templates/
 import {TransmissionConductorTemplate} from "../src/templates/transmission.conductor";
 import {TransmissionCircuitTemplateData} from "../src/templates/transmission.circuit";
 import {PowerTransformerTemplate, TransformerWindingTemplate} from "../src/templates/power.transformer";
-import {TransmissionWireType, TransmissionWireUnit} from "../src/models/transmission.conductor";
+import {ConductorMountType, defaultMountTypes, TransmissionWireType, TransmissionWireUnit} from "../src/models/transmission.conductor";
 import {TransmissionVoltage} from "../src/models/transmission.voltage";
 import {
     TransformerCooling,
@@ -55,6 +55,16 @@ conductors.push({name: 'TC_477MCM_AAC', size: 477, unit: TransmissionWireUnit.MC
 // High-temperature low-sag conductors (Invar core and ACCC composite core), 795 and 1272 MCM, for uprated 115 / 230 kV lines.
 const HTLS: [TransmissionWireType, string][] = [[TransmissionWireType.HTLS_INVAR, 'HTLS_INVAR'], [TransmissionWireType.HTLS_ACCC, 'HTLS_ACCC']]
 for (const size of [795, 1272]) for (const [type, suffix] of HTLS) conductors.push({name: `TC_${size}MCM_${suffix}`, size, unit: TransmissionWireUnit.MCM, type})
+// Distribution: all-aluminium (AAC) overhead conductors in sq.mm, for 22 and 33 kV lines.
+const AAC_SQMM = [25, 50, 95, 185, 200, 400]
+for (const size of AAC_SQMM) conductors.push({name: `TC_${size}SQMM_AAC`, size, unit: TransmissionWireUnit.SQMM, type: TransmissionWireType.AAC})
+// XLPE cables in sq.mm: 22 and 33 kV (all sizes) and 115 kV (300 sq.mm and up).
+const XLPE_SQMM = [35, 50, 150, 300, 400, 500, 630, 800]
+const XLPE_115KV_SQMM = [300, 400, 500, 630, 800]
+for (const size of XLPE_SQMM) conductors.push({name: `TC_${size}SQMM_XLPE`, size, unit: TransmissionWireUnit.SQMM, type: TransmissionWireType.XLPE})
+// every conductor lists the mounts that suit it: an XLPE cable's cable ladder, U-trench, duct bank and submarine; an aerial
+// conductor's every other one (suspension strings, line posts, horizontal vee)
+for (const c of conductors) c.mountTypes = defaultMountTypes(c.type)
 
 /* ---------- circuits ---------- */
 
@@ -85,14 +95,35 @@ for (const [voltage, vLabel] of [[TransmissionVoltage.AC115KV, '115KV'], [Transm
         circuits.push({name: `TCT_${vLabel}_${bundle}x${size}MCM_${suffix}`, voltage, bundle, conductorId: slugifyTemplateId(`TC_${size}MCM_${suffix}`)})
     }
 }
+/**
+ * Circuits of sq.mm conductors: one per size and bundle, single unless `bundles` lists more for a size. XLPE cable
+ * circuits are buried, in duct banks.
+ */
+const sqmmCircuits = (voltage: TransmissionVoltage, vLabel: string, suffix: string, sizes: number[], bundles: Record<number, number[]> = {}) => {
+    for (const size of sizes) for (const bundle of bundles[size] ?? [1]) {
+        circuits.push({
+            name: `TCT_${vLabel}_${bundle}x${size}SQMM_${suffix}`, voltage, bundle, conductorId: slugifyTemplateId(`TC_${size}SQMM_${suffix}`),
+            ...(suffix === 'XLPE' ? {mountType: ConductorMountType.DUCT_BANK} : {}),
+        })
+    }
+}
+// Distribution circuits at 22 and 33 kV: AAC (400 sq.mm also doubled) and XLPE cable (800 sq.mm also doubled).
+for (const [voltage, vLabel] of [[TransmissionVoltage.AC22KV, '22KV'], [TransmissionVoltage.AC33KV, '33KV']] as const) {
+    sqmmCircuits(voltage, vLabel, 'AAC', AAC_SQMM, {400: [1, 2]})
+    sqmmCircuits(voltage, vLabel, 'XLPE', XLPE_SQMM, {800: [1, 2]})
+}
+// 115 kV XLPE cable circuits (800 sq.mm also double and quad).
+sqmmCircuits(TransmissionVoltage.AC115KV, '115KV', 'XLPE', XLPE_115KV_SQMM, {800: [1, 2, 4]})
 
 /* ---------- order: smaller conductors first (the collection and the pickers follow this order) ---------- */
 
-const TYPE_ORDER = [TransmissionWireType.ACSR_GA, TransmissionWireType.ACSR_AW, TransmissionWireType.AAC, TransmissionWireType.HTLS_INVAR, TransmissionWireType.HTLS_ACCC]
-const kv = (v: TransmissionVoltage) => Number(String(v).replace(/\D/g, '')) || 0
-conductors.sort((a, b) => a.size - b.size || TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type))
+const TYPE_ORDER = [TransmissionWireType.ACSR_GA, TransmissionWireType.ACSR_AW, TransmissionWireType.AAC, TransmissionWireType.HTLS_INVAR, TransmissionWireType.HTLS_ACCC, TransmissionWireType.XLPE]
+const kv = (v?: TransmissionVoltage) => Number(String(v ?? '').replace(/\D/g, '')) || 0
+/** A conductor's cross-section in sq.mm, so MCM and sq.mm sizes sort together (1 MCM = 0.5067 sq.mm). */
+const areaMm2 = (c: TransmissionConductorTemplate) => c.unit === TransmissionWireUnit.MCM ? c.size * 0.5067 : c.size
+conductors.sort((a, b) => areaMm2(a) - areaMm2(b) || TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type))
 const conductorOf = (c: TransmissionCircuitTemplateData) => conductors.find(x => slugifyTemplateId(x.name) === c.conductorId)!
-circuits.sort((a, b) => kv(a.voltage) - kv(b.voltage) || conductorOf(a).size - conductorOf(b).size || a.bundle - b.bundle || TYPE_ORDER.indexOf(conductorOf(a).type) - TYPE_ORDER.indexOf(conductorOf(b).type))
+circuits.sort((a, b) => kv(a.voltage) - kv(b.voltage) || areaMm2(conductorOf(a)) - areaMm2(conductorOf(b)) || a.bundle - b.bundle || TYPE_ORDER.indexOf(conductorOf(a).type) - TYPE_ORDER.indexOf(conductorOf(b).type))
 
 /* ---------- power transformers ---------- */
 
@@ -197,6 +228,8 @@ async function main() {
 
     const snapshot = await templates.snapshot()
     let written = 0, skipped = 0
+    /** Templates this run adds (not there before): an existing collection takes them in. */
+    const added = new Set<string>()
     for (const record of records) {
         const issues = getTemplateKindDefinition(record.kind).validate(record.data, {
             exists: ref => snapshot.exists(ref) || records.some(r => r.kind === ref.kind && r.id === ref.id),
@@ -208,6 +241,7 @@ async function main() {
             continue
         }
         await templates.put(existing ? {...record, createdAt: existing.createdAt} : record)
+        if (!existing) added.add(`${record.kind}:${record.id}`)
         written++
     }
 
@@ -226,7 +260,18 @@ async function main() {
         await collections.put(collection)
         console.log(`collection ${collectionId}: ${existingCollection ? 'overwritten' : 'created'} (${collection.items.length} items)`)
     } else {
-        console.log(`collection ${collectionId}: exists, skipped`)
+        // an existing collection takes in the templates added now, in the seed's order (smaller conductors first); the
+        // seed's items it has keep that order too, and items added by hand stay after them
+        const key = (i: { kind: string; id: string }) => `${i.kind}:${i.id}`
+        const have = new Set(existingCollection.items.map(key))
+        const seedItems = records.map(r => ({kind: r.kind, id: r.id}))
+        const fresh = seedItems.filter(i => added.has(key(i)) && !have.has(key(i)))
+        if (fresh.length) {
+            const seedKeys = new Set(seedItems.map(key))
+            const items = [...seedItems.filter(i => have.has(key(i)) || added.has(key(i))), ...existingCollection.items.filter(i => !seedKeys.has(key(i)))]
+            await collections.put({...existingCollection, items, updatedAt: now})
+            console.log(`collection ${collectionId}: ${fresh.length} new item(s) added (${items.length} items)`)
+        } else console.log(`collection ${collectionId}: exists, nothing to add`)
     }
     console.log(`templates: ${written} written, ${skipped} skipped (use --force to overwrite)`)
 

@@ -1,0 +1,17 @@
+{
+  "id": "tct_33kv_1x150sqmm_xlpe",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-24T15:46:15.135Z",
+  "updatedAt": "2026-10-24T17:33:09.858Z",
+  "data": {
+    "name": "TCT_33KV_1x150SQMM_XLPE",
+    "voltage": "AC33KV",
+    "bundle": 1,
+    "conductorId": "tc_150sqmm_xlpe",
+    "mountType": "DUCT_BANK"
+  }
+}

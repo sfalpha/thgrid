@@ -1,0 +1,24 @@
+{
+  "id": "tc_25sqmm_aac",
+  "kind": "TRANSMISSION_CONDUCTOR",
+  "description": "EGAT standard conductor",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-24T15:46:15.135Z",
+  "updatedAt": "2026-10-24T17:33:09.858Z",
+  "data": {
+    "name": "TC_25SQMM_AAC",
+    "size": 25,
+    "unit": "SQMM",
+    "type": "AAC",
+    "mountTypes": [
+      "SUSPENSION_I_STRING",
+      "SUSPENSION_V_STRING",
+      "SUSPENSION_V_STRING_COMPACT",
+      "LINE_POST",
+      "HORIZONTAL_LINE_POST",
+      "HORIZONTAL_VEE"
+    ]
+  }
+}

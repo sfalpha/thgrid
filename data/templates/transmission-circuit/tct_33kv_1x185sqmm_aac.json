@@ -1,0 +1,16 @@
+{
+  "id": "tct_33kv_1x185sqmm_aac",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-24T15:46:15.135Z",
+  "updatedAt": "2026-10-24T15:46:15.135Z",
+  "data": {
+    "name": "TCT_33KV_1x185SQMM_AAC",
+    "voltage": "AC33KV",
+    "bundle": 1,
+    "conductorId": "tc_185sqmm_aac"
+  }
+}

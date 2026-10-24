@@ -1,0 +1,22 @@
+{
+  "id": "tc_630sqmm_xlpe",
+  "kind": "TRANSMISSION_CONDUCTOR",
+  "description": "EGAT standard conductor",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-24T15:46:15.135Z",
+  "updatedAt": "2026-10-24T17:55:41.696Z",
+  "data": {
+    "name": "TC_630SQMM_XLPE",
+    "size": 630,
+    "unit": "SQMM",
+    "type": "XLPE",
+    "mountTypes": [
+      "CABLE_LADDER",
+      "U_TRENCH",
+      "DUCT_BANK",
+      "SUBMARINE"
+    ]
+  }
+}

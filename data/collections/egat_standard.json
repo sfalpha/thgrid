@@ -8,6 +8,38 @@
   "items": [
     {
       "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_25sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_35sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_50sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_50sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_95sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_150sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_185sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_200sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
       "id": "tc_477mcm_acsr_ga"
     },
     {
@@ -17,6 +49,18 @@
     {
       "kind": "TRANSMISSION_CONDUCTOR",
       "id": "tc_477mcm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_300sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_400sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_400sqmm_xlpe"
     },
     {
       "kind": "TRANSMISSION_CONDUCTOR",
@@ -36,6 +80,14 @@
     },
     {
       "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_500sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_630sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CONDUCTOR",
       "id": "tc_1272mcm_acsr_ga"
     },
     {
@@ -51,6 +103,138 @@
       "id": "tc_1272mcm_htls_accc"
     },
     {
+      "kind": "TRANSMISSION_CONDUCTOR",
+      "id": "tc_800sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x25sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x35sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x50sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x50sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x95sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x150sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x185sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x200sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x300sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x400sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x400sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_2x400sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x500sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x630sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_1x800sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_22kv_2x800sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x25sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x35sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x50sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x50sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x95sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x150sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x185sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x200sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x300sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x400sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x400sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_2x400sqmm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x500sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x630sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_1x800sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_33kv_2x800sqmm_xlpe"
+    },
+    {
       "kind": "TRANSMISSION_CIRCUIT",
       "id": "tct_115kv_1x477mcm_acsr_ga"
     },
@@ -61,6 +245,14 @@
     {
       "kind": "TRANSMISSION_CIRCUIT",
       "id": "tct_115kv_1x477mcm_aac"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x300sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x400sqmm_xlpe"
     },
     {
       "kind": "TRANSMISSION_CIRCUIT",
@@ -101,6 +293,14 @@
     {
       "kind": "TRANSMISSION_CIRCUIT",
       "id": "tct_115kv_4x795mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x500sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x630sqmm_xlpe"
     },
     {
       "kind": "TRANSMISSION_CIRCUIT",
@@ -149,6 +349,18 @@
     {
       "kind": "TRANSMISSION_CIRCUIT",
       "id": "tct_115kv_4x1272mcm_htls_accc"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_1x800sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_2x800sqmm_xlpe"
+    },
+    {
+      "kind": "TRANSMISSION_CIRCUIT",
+      "id": "tct_115kv_4x800sqmm_xlpe"
     },
     {
       "kind": "TRANSMISSION_CIRCUIT",
@@ -288,5 +500,5 @@
     }
   ],
   "createdAt": "2026-10-08T14:02:50.356Z",
-  "updatedAt": "2026-10-11T03:58:55.234Z"
+  "updatedAt": "2026-10-24T15:46:15.135Z"
 }

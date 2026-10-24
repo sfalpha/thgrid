@@ -6,11 +6,19 @@
     "EGAT"
   ],
   "createdAt": "2026-10-08T14:02:50.356Z",
-  "updatedAt": "2026-10-08T17:15:36.541Z",
+  "updatedAt": "2026-10-24T17:33:09.858Z",
   "data": {
     "name": "TC_1272MCM_ACSR_AW",
     "size": 1272,
     "unit": "MCM",
-    "type": "ACSR/AW"
+    "type": "ACSR/AW",
+    "mountTypes": [
+      "SUSPENSION_I_STRING",
+      "SUSPENSION_V_STRING",
+      "SUSPENSION_V_STRING_COMPACT",
+      "LINE_POST",
+      "HORIZONTAL_LINE_POST",
+      "HORIZONTAL_VEE"
+    ]
   }
 }

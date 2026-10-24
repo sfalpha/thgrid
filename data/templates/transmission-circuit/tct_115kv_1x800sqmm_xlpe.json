@@ -1,0 +1,17 @@
+{
+  "id": "tct_115kv_1x800sqmm_xlpe",
+  "kind": "TRANSMISSION_CIRCUIT",
+  "description": "EGAT standard transmission circuit",
+  "tags": [
+    "EGAT"
+  ],
+  "createdAt": "2026-10-24T15:46:15.135Z",
+  "updatedAt": "2026-10-24T17:33:09.858Z",
+  "data": {
+    "name": "TCT_115KV_1x800SQMM_XLPE",
+    "voltage": "AC115KV",
+    "bundle": 1,
+    "conductorId": "tc_800sqmm_xlpe",
+    "mountType": "DUCT_BANK"
+  }
+}
