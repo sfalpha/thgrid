@@ -414,6 +414,19 @@ p {
     gap: 6px;
 }
 
+/* the conductor template's mount types: a wrapping row of checkboxes */
+.mount-checks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+}
+
+.mount-checks .inline-check {
+    color: inherit;
+    font-size: inherit;
+}
+
 .field {
     display: flex;
     flex-direction: column;
@@ -1332,6 +1345,49 @@ pre {
     color: #e8842b;
     font-weight: 600;
     white-space: nowrap;
+}
+
+/* the details of the circuit under the mouse in the tower drawing: fixed on the window, beside the mouse */
+.circuit-card {
+    position: fixed;
+    z-index: 2000;
+    max-width: 340px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.35;
+    text-align: left;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+}
+
+.circuit-card-title {
+    margin-bottom: 4px;
+    overflow-wrap: anywhere;
+}
+
+.circuit-card dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1px 10px;
+    margin: 0 0 4px;
+}
+
+.circuit-card dt {
+    color: var(--muted);
+}
+
+.circuit-card dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.circuit-card .warn-dot {
+    white-space: normal;
+    margin-bottom: 2px;
 }
 
 .find-results {

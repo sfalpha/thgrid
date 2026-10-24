@@ -1,7 +1,8 @@
 import {Router} from "express";
 import {listTemplateKindDefinitions, toTemplateKindInfo, TemplateKindInfo} from "../../templates/registry";
 import {TransmissionVoltage} from "../../models/transmission.voltage";
-import {TransmissionWireType, TransmissionWireUnit} from "../../models/transmission.conductor";
+import {ConductorMountType, TransmissionWireType, TransmissionWireUnit} from "../../models/transmission.conductor";
+import {TowerType} from "../../models/transmission.tower";
 import {GenerationType} from "../../models/generation";
 import {SubstationArrangement} from "../../models/substation";
 import {SubstationBusType} from "../../models/substation.bus";
@@ -23,6 +24,8 @@ export interface MetaResponse {
         transmissionVoltage: string[]
         transmissionWireType: string[]
         transmissionWireUnit: string[]
+        conductorMountType: string[]
+        towerType: string[]
         transformerWindingSide: string[]
         transformerWindingWiring: string[]
         transformerWindingTapChanger: string[]
@@ -47,6 +50,8 @@ export function buildMeta(version: string): MetaResponse {
             transmissionVoltage: Object.values(TransmissionVoltage),
             transmissionWireType: Object.values(TransmissionWireType),
             transmissionWireUnit: Object.values(TransmissionWireUnit),
+            conductorMountType: Object.values(ConductorMountType),
+            towerType: Object.values(TowerType),
             transformerWindingSide: Object.values(TransformerWindingSide),
             transformerWindingWiring: Object.values(TransformerWindingWiring),
             transformerWindingTapChanger: Object.values(TransformerWindingTapChanger),

@@ -12,7 +12,8 @@
  */
 import {CoordinatesProps} from "../models/coordinates";
 import {TransmissionVoltage} from "../models/transmission.voltage";
-import {TransmissionConductor} from "../models/transmission.conductor";
+import {ConductorMountType, TransmissionConductor} from "../models/transmission.conductor";
+import {TowerType} from "../models/transmission.tower";
 import {GenerationType} from "../models/generation";
 import {SubstationArrangement} from "../models/substation";
 import {SubstationBusType} from "../models/substation.bus";
@@ -201,10 +202,23 @@ export interface TransmissionCircuitRecord extends NetworkRecordBase {
      * Tower position, a hint for drawing parallel circuits (and tower illustrations): the line group (`lineGroup`, one
      * tower line; several run side by side, 1 on the left) and the circuit's number on it (`groupCircuit`: 1 / 2 hang on
      * the top pair of arms, left / right looking from the path's FROM end, 3 / 4 on the pair below, …). Unset: assigned
-     * at draw time, two circuits per new tower (see `towerLayout.ts`).
+     * at draw time, two circuits per new tower (see `towerLayout.ts`). For a circuit in a duct bank (`mountType`
+     * DUCT_BANK) the group is a duct bank instead, numbered on its own (duct bank 1, 2, … beside the towers), and the
+     * number its place in the duct bank (1 / 2 the top row, left / right, 3 / 4 the row below, …); a CABLE_LADDER,
+     * U_TRENCH or SUBMARINE one's likewise a cable ladder, a U-trench or a submarine group, each kind numbered on its own
+     * (`circuitGroupKind`).
      */
     lineGroup?: number
     groupCircuit?: number
+    /**
+     * How the conductors are carried: an aerial mount (suspension I / V-string, line post, …) on a tower, or a cable
+     * (cable ladder, U-trench, duct bank, submarine). Taken from the circuit template, else from the conductor template's
+     * list (`preferredMountType`). Unset: not stated (drawn on a tower). Replaces the older `underground` flag (a
+     * DUCT_BANK mount, migrated on load).
+     */
+    mountType?: ConductorMountType
+    /** The tower type, a hint for the tower drawing; unset = none (the default drawing). Only for an aerial mount (`towerTypeApplies`). */
+    towerType?: TowerType
     /** Conductor values (size, unit, type, code), copied from a TRANSMISSION_CONDUCTOR template when the circuit is created from a template; editable afterwards. */
     conductor?: TransmissionConductor
     /** @deprecated Older documents: id of the conductor template; superseded by the copied `conductor` values. */
@@ -213,6 +227,38 @@ export interface TransmissionCircuitRecord extends NetworkRecordBase {
     lengthKm?: number
     /** @deprecated Older documents: single line of the circuit. Migrated into `TransmissionLineRecord.circuitIds` on load. */
     lineId?: string
+}
+
+/**
+ * What a circuit's group (`lineGroup`) is: a tower; a cable ladder (the CABLE_LADDER mount); a U-trench (U_TRENCH); a
+ * duct bank (DUCT_BANK); a submarine group (SUBMARINE). Each kind is numbered on its own; every other mount hangs on a
+ * tower.
+ */
+export type CircuitGroupKind = 'tower' | 'cableLadder' | 'uTrench' | 'ductBank' | 'submarine'
+
+/** The kinds of circuit groups, in the order the tower drawing and the map lay them (towers on the left). */
+export const CIRCUIT_GROUP_KINDS: readonly CircuitGroupKind[] = ['tower', 'cableLadder', 'uTrench', 'ductBank', 'submarine']
+
+/** The mount that puts a circuit in a group of each kind but the towers. */
+const GROUP_KIND_OF_MOUNT: Partial<Record<ConductorMountType, CircuitGroupKind>> = {
+    [ConductorMountType.CABLE_LADDER]: 'cableLadder',
+    [ConductorMountType.U_TRENCH]: 'uTrench',
+    [ConductorMountType.DUCT_BANK]: 'ductBank',
+    [ConductorMountType.SUBMARINE]: 'submarine',
+}
+
+/** What a circuit's group is (`CircuitGroupKind`). */
+export function circuitGroupKind(c: Pick<TransmissionCircuitRecord, 'mountType'>): CircuitGroupKind {
+    return (c.mountType && GROUP_KIND_OF_MOUNT[c.mountType]) || 'tower'
+}
+
+/** Names of a group of each kind: in prose (`duct bank 2`) and as the drawing's label prefix (`D2`). */
+export const CIRCUIT_GROUP_NAMES: Record<CircuitGroupKind, { name: string; prefix: string }> = {
+    tower: {name: 'tower', prefix: 'T'},
+    cableLadder: {name: 'cable ladder', prefix: 'C'},
+    uTrench: {name: 'U-trench', prefix: 'U'},
+    ductBank: {name: 'duct bank', prefix: 'D'},
+    submarine: {name: 'submarine group', prefix: 'S'},
 }
 
 /**

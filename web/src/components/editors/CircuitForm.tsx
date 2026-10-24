@@ -1,5 +1,6 @@
 import type {TransmissionCircuitTemplateData} from '@shared/templates/transmission.circuit'
 import type {TransmissionVoltage} from '@shared/models/transmission.voltage'
+import type {ConductorMountType} from '@shared/models/transmission.conductor'
 import type {TemplateSummary} from '@shared/templates/template'
 import {issueFor, NumberField, SelectField, TextField} from '../fields'
 import {EditorProps} from './ConductorForm'
@@ -24,6 +25,9 @@ export function CircuitForm({data, onChange, issues, meta, conductors}: CircuitF
             <SelectField label="Conductor" value={data.conductorId} options={conductorOptions}
                          onChange={v => set('conductorId', v ?? '')} error={issueFor(issues, 'conductorId')}
                          hint={conductors.length ? undefined : 'No conductor templates yet. Create one first.'} className="span-2"/>
+            <SelectField label="Mount type" value={data.mountType} options={meta.enums.conductorMountType} allowEmpty emptyLabel="from the conductor"
+                         onChange={v => set('mountType', v as ConductorMountType | undefined)} error={issueFor(issues, 'mountType')}
+                         hint="How the conductors are carried (e.g. Duct Bank for a buried cable); empty: the conductor's (suspension I-string, else duct bank)"/>
             {selected && (
                 <div className="field">
                     <label>&nbsp;</label>

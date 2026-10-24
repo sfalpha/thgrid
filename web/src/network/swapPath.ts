@@ -10,7 +10,7 @@
  * Pure: returns ops plus the optional renames (the path is named
  * `<from>-<to>`, and its circuits after it).
  */
-import {CIRCUIT_END_FROM, CIRCUIT_END_TO, NetworkDocument, NetworkNodeKind, TransmissionCircuitRecord, TransmissionPathRecord} from '@shared/network/records'
+import {CIRCUIT_END_FROM, CIRCUIT_END_TO, CircuitGroupKind, circuitGroupKind, NetworkDocument, NetworkNodeKind, TransmissionCircuitRecord, TransmissionPathRecord} from '@shared/network/records'
 import {applyOps, NetworkOp} from '@shared/network/ops'
 import {regenerateNamingOps, RegenerateChange} from '@shared/network/naming'
 
@@ -45,11 +45,15 @@ export function buildSwapPathPlan(doc: NetworkDocument, pathId: string): SwapPat
         plan.ops.push({type: 'upsert', collection: 'connections', record: {...conn, nodes: conn.nodes.map(n => n.kind === NetworkNodeKind.TRANSMISSION_CIRCUIT && ids.has(n.id) ? {...n, terminal: flip(n.terminal)} : n)}})
     }
 
-    // tower positions are seen from the FROM end: the towers set come in the other order, 1 / 2 (3 / 4, …) change sides
-    const groups = plan.circuits.map(c => c.lineGroup).filter((g): g is number => g !== undefined)
-    const span = groups.length ? Math.min(...groups) + Math.max(...groups) : 0
+    // tower positions are seen from the FROM end: the towers set come in the other order, 1 / 2 (3 / 4, …) change sides;
+    // duct banks and submarine groups likewise, each kind among itself
+    const spanOf = (kind: CircuitGroupKind) => {
+        const groups = plan.circuits.filter(c => circuitGroupKind(c) === kind).map(c => c.lineGroup).filter((g): g is number => g !== undefined)
+        return groups.length ? Math.min(...groups) + Math.max(...groups) : 0
+    }
     for (const c of plan.circuits) {
         if (c.lineGroup === undefined && c.groupCircuit === undefined) continue
+        const span = spanOf(circuitGroupKind(c))
         const mirrored: TransmissionCircuitRecord = {
             ...c,
             lineGroup: c.lineGroup === undefined ? undefined : span - c.lineGroup,

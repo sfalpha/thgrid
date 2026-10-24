@@ -4,7 +4,7 @@
  * means the payload is valid.
  */
 import {TransmissionVoltage} from "../models/transmission.voltage";
-import {TransmissionWireType, TransmissionWireUnit} from "../models/transmission.conductor";
+import {ConductorMountType, TransmissionWireType, TransmissionWireUnit} from "../models/transmission.conductor";
 import {
     TransformerCooling,
     TransformerWindingSide,
@@ -131,6 +131,14 @@ export function validateTransmissionConductorTemplate(data: unknown): Validation
     requireEnum(issues, data, 'unit', 'unit', enumValues(TransmissionWireUnit))
     requireEnum(issues, data, 'type', 'type', enumValues(TransmissionWireType))
     optionalString(issues, data, 'code', 'code', {max: 60})
+    const mounts = data.mountTypes
+    if (mounts !== undefined && mounts !== null) {
+        const allowed = enumValues(ConductorMountType)
+        if (!Array.isArray(mounts) || mounts.length === 0 || mounts.some(m => typeof m !== 'string' || !allowed.includes(m))) {
+            issues.push({path: 'mountTypes', message: `mountTypes must list at least one of: ${allowed.join(', ')}`})
+        } else if (new Set(mounts).size !== mounts.length) issues.push({path: 'mountTypes', message: 'mountTypes lists a mount type twice'})
+    }
+    if (data.underground !== undefined) issues.push({path: 'underground', message: 'underground is replaced by mountTypes'})
     return issues
 }
 
@@ -140,6 +148,7 @@ export function validateTransmissionCircuitTemplate(data: unknown, ctx: Validati
     requireString(issues, data, 'name', 'name', {max: 120})
     optionalEnum(issues, data, 'voltage', 'voltage', enumValues(TransmissionVoltage))
     requireNumber(issues, data, 'bundle', 'bundle', {min: 1, integer: true})
+    optionalEnum(issues, data, 'mountType', 'mountType', enumValues(ConductorMountType))
     requireString(issues, data, 'conductorId', 'conductorId')
     if (typeof data.conductorId === 'string' && data.conductorId.length > 0) {
         issues.push(...validateTemplateId(data.conductorId).map(i => ({...i, path: 'conductorId'})))

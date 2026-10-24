@@ -29,6 +29,7 @@ export function resolveTransmissionCircuitTemplate(data: TransmissionCircuitTemp
         voltage: data.voltage,
         bundle: data.bundle,
         conductor: conductor.data,
+        ...(data.mountType ? {mountType: data.mountType} : {}),
     }
 }
 

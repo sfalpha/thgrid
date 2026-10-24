@@ -1,9 +1,10 @@
-import {Dispatch, ReactNode, SetStateAction, useEffect, useMemo, useRef, useState} from 'react'
+import {Dispatch, MouseEvent as ReactMouseEvent, ReactNode, Ref, SetStateAction, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {energizedVsRated, TransmissionVoltage} from '@shared/models/transmission.voltage'
 import {TemplateKind} from '@shared/templates/template'
 import type {TransmissionCircuitTemplateData} from '@shared/templates/transmission.circuit'
-import type {TransmissionConductorTemplate} from '@shared/templates/transmission.conductor'
-import {genericConductor, type TransmissionConductor, type TransmissionWireType, type TransmissionWireUnit} from '@shared/models/transmission.conductor'
+import {conductorMountTypes, type TransmissionConductorTemplate} from '@shared/templates/transmission.conductor'
+import {ConductorMountType, defaultMountTypes, genericConductor, type TransmissionConductor, TransmissionWireType, type TransmissionWireUnit} from '@shared/models/transmission.conductor'
+import {TowerType, towerTypeApplies} from '@shared/models/transmission.tower'
 import {
     CIRCUIT_END_FROM,
     CIRCUIT_END_TO,
@@ -24,6 +25,10 @@ import {
     TransmissionJunctionRecord,
     TransmissionLineRecord,
     TransmissionPathRecord,
+    CIRCUIT_GROUP_KINDS,
+    CIRCUIT_GROUP_NAMES,
+    CircuitGroupKind,
+    circuitGroupKind,
 } from '@shared/network/records'
 import {applyOps, cascadeDeleteOps, NetworkOp, pickId, uniqueId} from '@shared/network/ops'
 import {generationUnitNaming, junctionNaming, lineNameVoltage, lineNaming, pathNaming, regenerateNamingOps, siteNaming, takeOffLineName, takeOffNaming, yardNaming} from '@shared/network/naming'
@@ -42,14 +47,15 @@ import {buildRouteViaPlan, pathsBetween, RouteVia, routeViaPathChoices, runVolta
 import {buildNewCircuitPlan, circuitPlaceOptions, NewCircuitConnect, NewCircuitEndPlan, NewCircuitSpec, suggestedCircuitVoltage, yardsOf} from './circuitWizard'
 import {buildRouteEndPlan, freedTakeOffs, routeEndRoutes, RouteEndRoute, routeKey, RouteTarget} from './routeEnd'
 import {buildSwapPathPlan} from './swapPath'
-import {TowerSlot, towerSlots} from './towerLayout'
+import {bundleLayout, CONDUCTOR_R, TowerSlot, towerSlots} from './towerLayout'
+import {CircuitMount, templateMount} from './circuitMount'
 import {confirmDeleteLines} from './deleteLines'
 import {atPathEnd, pathEndOf} from '@shared/network/refs'
 import {moveSiteOps, newSiteJunctionRecord, siteJunctionOf} from '@shared/network/siteJunction'
 import {extensionLinkProblem, extensionsOf, parentSiteOf, setExtensionOfOps, suggestedParentSite} from '@shared/network/extensions'
 import {api, MetaResponse} from '../api/client'
 import {useTemplateRecords, useTemplates} from '../hooks/useTemplates'
-import {circuitTemplateGroups} from './templateOrder'
+import {circuitTemplateGroups, voltageTitle} from './templateOrder'
 import {hrefTo} from '../hooks/useHashRoute'
 import {CheckboxField, enumLabel, Field, NumberField, SelectField, TextAreaField, TextField} from '../components/fields'
 import {Notice} from '../components/IssueList'
@@ -1988,6 +1994,21 @@ const towerNumberLabel = (n: number) => {
     return `${n} (${level === 1 ? 'top' : level === 2 ? '2nd' : level === 3 ? '3rd' : `${level}th`} ${n % 2 === 1 ? 'left' : 'right'})`
 }
 
+/** A group of each kind, capitalised: "Tower 2", "Duct bank 1", "Submarine group 1". */
+const GROUP_TITLE: Record<CircuitGroupKind, string> = {tower: 'Tower', cableLadder: 'Cable ladder', uTrench: 'U-trench', ductBank: 'Duct bank', submarine: 'Submarine group'}
+
+/** The tower drawing's toggle names the groups of each kind it has: "Towers (2) · Duct banks (1)". */
+const GROUP_PLURAL: Record<CircuitGroupKind, string> = {tower: 'Towers', cableLadder: 'Cable ladders', uTrench: 'U-trenches', ductBank: 'Duct banks', submarine: 'Submarine groups'}
+
+/** The circuit panel's position fields per group kind: the group, the circuit's place in it, and their hints. */
+const GROUP_FIELDS: Record<CircuitGroupKind, { group: string; place: string; groupHint: string; placeHint: string }> = {
+    tower: {group: 'Line group (tower)', place: 'Circuit on the tower', groupHint: 'Towers run side by side, 1 on the left; empty = assigned when drawn, two circuits per tower', placeHint: "Looking from the path's FROM end"},
+    cableLadder: {group: 'Cable ladder', place: 'Circuit on the cable ladder', groupHint: 'Cable ladders stand side by side after the towers, 1 on the left; empty = assigned when drawn, two circuits per cable ladder', placeHint: "Rows of two, looking from the path's FROM end"},
+    uTrench: {group: 'U-trench', place: 'Circuit in the U-trench', groupHint: 'U-trenches lie side by side after the cable ladders, 1 on the left; empty = assigned when drawn, two circuits per U-trench', placeHint: "Rows of two, looking from the path's FROM end"},
+    ductBank: {group: 'Duct bank', place: 'Circuit in the duct bank', groupHint: 'Duct banks lie side by side after the towers (and the U-trenches), 1 on the left; empty = assigned when drawn, two circuits per duct bank', placeHint: "Rows of two, looking from the path's FROM end"},
+    submarine: {group: 'Submarine group', place: 'Circuit in the submarine group', groupHint: 'Submarine groups lie side by side after the duct banks, 1 on the left; empty = assigned when drawn, two circuits per group', placeHint: "Rows of two, looking from the path's FROM end"},
+}
+
 /** The lines a circuit is a section of, by name. */
 const circuitLines = (doc: NetworkDocument, circuitId: string) => doc.lines.filter(l => l.circuitIds.includes(circuitId)).sort((a, b) => a.name.localeCompare(b.name))
 
@@ -2015,7 +2036,12 @@ function CircuitsWithTower({path, circuits, locate}: { path: TransmissionPathRec
     }
     const sorted = [...circuits].sort((a, b) => a.name.localeCompare(b.name))
     const slots = towerSlots(sorted)
-    const maxGroup = Math.max(1, ...slots.map(s => s.group))
+    /** Highest group of a kind in use; each kind (towers, cable ladders, U-trenches, duct banks, submarine groups) is numbered apart. */
+    const maxGroupOf = (kind: CircuitGroupKind) => Math.max(1, ...slots.filter(s => s.kind === kind).map(s => s.group))
+    /** How many groups of a kind the path has. */
+    const countOf = (kind: CircuitGroupKind) => new Set(slots.filter(s => s.kind === kind).map(s => s.group)).size
+    /** The drawing's toggle: its towers and cable groups of each kind (towers when it has none). */
+    const drawingTitle = CIRCUIT_GROUP_KINDS.filter(k => countOf(k)).map(k => `${GROUP_PLURAL[k]} (${countOf(k)})`).join(' · ') || 'Towers (0)'
     const pick = (sel: Selection) => {
         ed.select(sel)
         locate?.(sel)
@@ -2036,11 +2062,14 @@ function CircuitsWithTower({path, circuits, locate}: { path: TransmissionPathRec
                 const reVolted = !!c.energizedVoltage && c.energizedVoltage !== c.voltage
                 const slot = slots.find(s => s.circuit.id === c.id)!
                 const lines = circuitLines(ed.doc, c.id)
+                /** What its group is; T for a tower, C a cable ladder, U a U-trench, D a duct bank, S a submarine group. */
+                const groupKind = circuitGroupKind(c)
+                const kind = CIRCUIT_GROUP_NAMES[groupKind].prefix
                 return (
                     <div key={c.id} className="toolbar small" style={{marginBottom: 6}}>
                         <VoltageSwatch circuit={c}/>
                         <div style={{flex: 1, minWidth: 0}}>
-                            <strong>{c.name}</strong>{c.voltage ? <span className="muted"> · {c.voltage}</span> : null}{reVolted ? <span className="muted"> · energized {enumLabel(c.energizedVoltage!)}</span> : null}<span className="muted" title="Conductor (bundle × size unit type)"> · {conductorText(c)}</span>
+                            <strong>{c.name}</strong>{c.mountType ? <span className="muted" title="Mount type"> · {enumLabel(c.mountType)}</span> : null}{c.voltage ? <span className="muted"> · {c.voltage}</span> : null}{reVolted ? <span className="muted"> · energized {enumLabel(c.energizedVoltage!)}</span> : null}<span className="muted" title="Conductor (bundle × size unit type)"> · {conductorText(c)}</span>
                             {warn && <span className="warn-dot"> ⚠ {warn}</span>}
                             <div className="muted">
                                 {lines.length ? <>line {lines.map((l, i) => <span key={l.id}>{i ? ', ' : ''}<a href="#" onClick={e => {
@@ -2051,10 +2080,11 @@ function CircuitsWithTower({path, circuits, locate}: { path: TransmissionPathRec
                             </div>
                         </div>
                         <select value={c.lineGroup !== undefined && c.groupCircuit !== undefined ? `${c.lineGroup}-${c.groupCircuit}` : 'auto'} onChange={e => setPosition(c, e.target.value)}
-                                title="Tower position: the line group (tower) and the circuit's place on it, looking from the path's FROM end; drives the order of the parallel lines on the map">
-                            <option value="auto">auto (T{slot.group} {towerNumberLabel(slot.number)})</option>
-                            {Array.from({length: maxGroup + 1}, (_, i) => i + 1).flatMap(g => Array.from({length: Math.max(2, ...slots.filter(s => s.group === g).map(s => s.number + 1))}, (_, k) => k + 1).map(n => (
-                                <option key={`${g}-${n}`} value={`${g}-${n}`}>T{g} {towerNumberLabel(n)}</option>
+                                title={groupKind !== 'tower' ? `${GROUP_TITLE[groupKind]} position: the ${CIRCUIT_GROUP_NAMES[groupKind].name} and the circuit's place in it (rows of two), looking from the path's FROM end; drives the order of the parallel lines on the map`
+                                    : "Tower position: the line group (tower) and the circuit's place on it, looking from the path's FROM end; drives the order of the parallel lines on the map"}>
+                            <option value="auto">auto ({kind}{slot.group} {towerNumberLabel(slot.number)})</option>
+                            {Array.from({length: maxGroupOf(groupKind) + 1}, (_, i) => i + 1).flatMap(g => Array.from({length: Math.max(2, ...slots.filter(s => s.kind === groupKind && s.group === g).map(s => s.number + 1))}, (_, k) => k + 1).map(n => (
+                                <option key={`${g}-${n}`} value={`${g}-${n}`}>{kind}{g} {towerNumberLabel(n)}</option>
                             )))}
                         </select>
                         <button type="button" className="small" onClick={() => open(c)}>Edit</button>
@@ -2062,8 +2092,8 @@ function CircuitsWithTower({path, circuits, locate}: { path: TransmissionPathRec
                 )
             })}
             <div style={{borderTop: '1px solid var(--border)', marginTop: 6, paddingTop: 6}}>
-                <button type="button" className="small" onClick={toggle} aria-expanded={show} title={show ? 'Fold the tower drawing away' : 'Show the circuits on their towers'}>
-                    {show ? '▾' : '▸'} Towers ({maxGroup})
+                <button type="button" className="small" onClick={toggle} aria-expanded={show} title={show ? 'Fold the tower drawing away' : 'Show the circuits on their towers and in their cable groups'}>
+                    {show ? '▾' : '▸'} {drawingTitle}
                 </button>
                 {show && <div style={{overflowX: 'auto', textAlign: 'center', marginTop: 4}}><TowerDiagram path={path} slots={slots} onPick={open}/></div>}
             </div>
@@ -2078,21 +2108,37 @@ function CircuitsWithTower({path, circuits, locate}: { path: TransmissionPathRec
  * out to a wide braced base. On top the earth-wire arm (a flat top chord with members sloping down to the body, an earth
  * wire at each end); per pair of circuits (1 / 2 on top, 3 / 4 below, …) three lattice cross-arms, one per phase (flat
  * bottom chord, top chord rising to the body), the lowest one reaching a little further, an insulator string hanging
- * from each tip with the conductor under it: the left circuit's on the left, the right one's on the right, in its
- * voltage colour (paler and dashed when its position is assigned automatically; hollow where no circuit hangs), named
- * under its conductors by its line (else its own name's tail). Clicking a circuit's conductors opens it.
+ * from each tip with the conductors under it, as its bundle (one; two side by side; three or more on a regular polygon, `bundleLayout`): the left circuit's on the left, the right one's on the right, in its
+ * voltage colour: solid circles of one size in the colour of the voltage it runs at, ringed thinly in its rated
+ * voltage's colour when that differs (a hollow dashed circle where no circuit hangs), named under its conductors by its
+ * line (else its own name's tail). The cable circuits follow the towers in their groups (`CableGroup`): cable ladders
+ * (an H-frame standing on the ground), U-trenches, duct banks, then submarine groups, each with its circuits in rows of
+ * two (1 / 2 the top row, left / right), each circuit as its three phase cables in a trefoil (a pyramid: one on top, two
+ * below), coloured like the conductors on the towers. The mouse on a circuit's conductors or cables shows its details
+ * (`CircuitCard`); a click opens it.
  */
 function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slots: TowerSlot[]; onPick: (c: TransmissionCircuitRecord) => void }) {
     const ed = useNetworkEditor()
-    const groups = [...new Set(slots.map(s => s.group))].sort((a, b) => a - b)
-    const levelsOf = (g: number) => Math.max(1, ...slots.filter(s => s.group === g).map(s => s.level))
+    /** The groups of a kind in use, in order. */
+    const groupsOf = (kind: CircuitGroupKind) => [...new Set(slots.filter(s => s.kind === kind).map(s => s.group))].sort((a, b) => a - b)
+    /** The slots of one group of a kind. */
+    const slotsIn = (kind: CircuitGroupKind, g: number) => slots.filter(s => s.kind === kind && s.group === g)
+    const groups = groupsOf('tower')
+    /** The cable groups after the towers, in drawing order: cable ladders, U-trenches, duct banks, submarine groups. */
+    const cableGroups = CIRCUIT_GROUP_KINDS.filter((k): k is CableGroupKind => k !== 'tower').flatMap(kind => groupsOf(kind).map(g => ({kind, g, slots: slotsIn(kind, g)})))
+    const levelsOf = (g: number) => Math.max(1, ...slotsIn('tower', g).map(s => s.level))
     const maxLevels = Math.max(1, ...groups.map(levelsOf))
     const PHASES = 3, PHASE_GAP = 22, LEVEL_GAP = 16, REACH = 30, BODY = 4.5, BASE = 25, INSULATOR = 9, TW = 2 * (REACH + 4) + 76
     const LEVEL_H = PHASES * PHASE_GAP + LEVEL_GAP
     const earthY = 10, firstArm = 36
     /** Arm height on a tower with `levels` pairs: towers stand on one ground line, so a shorter one starts lower. */
     const armYOf = (levels: number) => (level: number, phase: number) => firstArm + (maxLevels - levels + level - 1) * LEVEL_H + phase * PHASE_GAP
-    const footY = armYOf(maxLevels)(maxLevels, PHASES - 1) + 14 + 80, H = footY + 36, W = Math.max(1, groups.length) * TW
+    /** How far the cable groups reach above the ground line (cable ladders) and below it (with their names). */
+    const above = Math.max(0, ...cableGroups.map(c => CableGroup.above(c.kind, c.slots)))
+    const below = Math.max(0, ...cableGroups.map(c => CableGroup.below(c.kind, c.slots)))
+    // the ground line: under the towers, else near the top (cable groups only), low enough for a cable ladder standing on it
+    const footY = Math.max(groups.length ? armYOf(maxLevels)(maxLevels, PHASES - 1) + 14 + 80 : 26, above + 12)
+    const H = Math.max(footY + 36, footY + below + 22), W = Math.max(1, groups.length * TW + cableGroups.length * CableGroup.WIDTH)
     const reach = (phase: number) => phase === PHASES - 1 ? REACH + 4 : REACH
     /** Label of a circuit on the tower: its line without the voltage (else the tail of its name), shortened to fit. */
     const label = (c: TransmissionCircuitRecord) => {
@@ -2106,6 +2152,18 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
     const ratedColor = (c: TransmissionCircuitRecord) => voltageColor(c.voltage ?? c.energizedVoltage)
     const thin = {stroke: 'currentColor', strokeWidth: 0.6, fill: 'none', opacity: 0.75}
     const chord = {stroke: 'currentColor', strokeWidth: 1.3, fill: 'none'}
+    /** The circuit under the mouse and where the mouse came onto it (viewport px): its details card (`CircuitCard`) follows the mouse. */
+    const [hover, setHover] = useState<{ slot: TowerSlot; x: number; y: number }>()
+    const card = useRef<HTMLDivElement>(null)
+    useLayoutEffect(() => {
+        if (hover && card.current) placeCard(card.current, hover.x, hover.y)
+    }, [hover])
+    /** Mouse handlers of a circuit's conductors (cables): its card while the mouse is on them; nothing for an empty place. */
+    const hoverOn = (s?: TowerSlot) => s ? {
+        onMouseEnter: (e: ReactMouseEvent) => setHover({slot: s, x: e.clientX, y: e.clientY}),
+        onMouseMove: (e: ReactMouseEvent) => card.current && placeCard(card.current, e.clientX, e.clientY),
+        onMouseLeave: () => setHover(undefined),
+    } : {}
 
     /** Zigzag web between two chords given as functions of t ∈ [0, 1], in `panels` panels. */
     const web = (a: (t: number) => [number, number], b: (t: number) => [number, number], panels: number) => {
@@ -2162,13 +2220,12 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
                 <path d={bracing(top, waistY, Math.max(4, Math.round((waistY - top) / 9)))} {...thin}/>
                 <path d={bracing(waistY, footY, 5)} {...thin}/>
                 {Array.from({length: levels}, (_, i) => i + 1).map(level => [1, 2].map(side => {
-                    const s = slots.find(t => t.group === g && t.level === level && t.side === side)
+                    const s = slots.find(t => t.kind === 'tower' && t.group === g && t.level === level && t.side === side)
                     const dir = side === 1 ? -1 : 1
                     const fill = s ? energizedColor(s.circuit) : undefined, outline = s ? ratedColor(s.circuit) : undefined
                     const lowest = armY(level, PHASES - 1)
                     return (
-                        <g key={`${level}-${side}`} style={{cursor: s ? 'pointer' : undefined}} onClick={() => s && onPick(s.circuit)}>
-                            {s && <title>{`${s.circuit.name} · tower ${g}, circuit ${s.number}${circuitLines(ed.doc, s.circuit.id).length ? ` · line ${circuitLines(ed.doc, s.circuit.id).map(l => l.name).join(', ')}` : ''}${s.auto ? ' · position assigned automatically' : ''}`}</title>}
+                        <g key={`${level}-${side}`} style={{cursor: s ? 'pointer' : undefined}} onClick={() => s && onPick(s.circuit)} {...hoverOn(s)}>
                             {Array.from({length: PHASES}, (_, p) => {
                                 const y = armY(level, p), x = cx + dir * reach(p)
                                 return (
@@ -2178,13 +2235,17 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
                                         {s?.circuit.planned
                                             ? <line x1={x} y1={y + 1} x2={x} y2={y + INSULATOR} stroke={PLANNED_COLOR} strokeWidth={2} strokeLinecap="round" strokeDasharray="0 3.2"/>
                                             : <line x1={x} y1={y} x2={x} y2={y + INSULATOR} stroke="currentColor" strokeWidth={1.6} opacity={s ? 1 : 0.45}/>}
-                                        {/* the conductor: filled in the energized voltage's colour, outlined in the rated one's */}
-                                        {s ? <circle cx={x} cy={y + INSULATOR + 3.4} r={3.2} fill={fill} fillOpacity={s.auto ? 0.55 : 1} stroke={outline} strokeWidth={1.8} strokeDasharray={s.auto ? '2 1.5' : undefined}/>
-                                            : <circle cx={x} cy={y + INSULATOR + 3} r={2.8} fill="none" stroke="currentColor" strokeDasharray="1.5 1.5" opacity={0.45}/>}
+                                        {/* the conductors of the phase, as its bundle hanging from the insulator: filled in the energized voltage's colour, outlined in the rated one's */}
+                                        {s ? (() => {
+                                            const b = bundleLayout(s.circuit.bundle)
+                                            const cy = y + INSULATOR + b.hang
+                                            return b.pts.map(([dx, dy], i) => <circle key={i} cx={x + dx} cy={cy + dy} r={b.r} fill={fill}
+                                                                                     stroke={outline !== fill ? outline : 'none'} strokeWidth={0.8}/>)
+                                        })() : <circle cx={x} cy={y + INSULATOR + CONDUCTOR_R} r={CONDUCTOR_R} fill="none" stroke="currentColor" strokeDasharray="1.2 1.2" opacity={0.45}/>}
                                     </g>
                                 )
                             })}
-                            {s && <text x={cx + dir * reach(PHASES - 1)} y={lowest + INSULATOR + 14} fontSize={8} fontWeight={700} textAnchor="middle" fill={fill}
+                            {s && <text x={cx + dir * reach(PHASES - 1)} y={lowest + INSULATOR + bundleLayout(s.circuit.bundle).height + 8} fontSize={8} fontWeight={700} textAnchor="middle" fill={fill}
                                         style={{paintOrder: 'stroke', stroke: 'var(--panel, #fff)', strokeWidth: 3}}>{label(s.circuit)}</text>}
                         </g>
                     )
@@ -2195,13 +2256,225 @@ function TowerDiagram({path, slots, onPick}: { path: TransmissionPathRecord; slo
     }
 
     return (
-        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="tower-diagram" role="img" aria-label="Circuits on the towers">
-            <line x1={0} y1={footY} x2={W} y2={footY} stroke="currentColor" strokeWidth={1} opacity={0.4}/>
-            {groups.map((g, i) => tower(g, i))}
-            <text x={W / 2} y={H - 6} fontSize={8} textAnchor="middle" fill="currentColor" opacity={0.7}>{`seen from ${refLabel(ed.doc, path.from)}`}</text>
-        </svg>
+        <>
+            <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="tower-diagram" role="img" aria-label="Circuits on the towers">
+                {/* the ground under the towers; each cable group draws its own (none over a U-trench's opening or the water) */}
+                {groups.length > 0 && <line x1={0} y1={footY} x2={groups.length * TW} y2={footY} stroke="currentColor" strokeWidth={1} opacity={0.4}/>}
+                {groups.map((g, i) => tower(g, i))}
+                {cableGroups.map(({kind, g, slots: inGroup}, i) => (
+                    <CableGroup key={`${kind}${g}`} kind={kind} group={g} slots={inGroup} x={groups.length * TW + i * CableGroup.WIDTH} groundY={footY}
+                                label={label} energizedColor={energizedColor} ratedColor={ratedColor} onPick={onPick} hoverOn={hoverOn}/>
+                ))}
+                <text x={W / 2} y={H - 6} fontSize={8} textAnchor="middle" fill="currentColor" opacity={0.7}>{`seen from ${refLabel(ed.doc, path.from)}`}</text>
+            </svg>
+            {hover && <CircuitCard ref={card} slot={hover.slot}/>}
+        </>
     )
 }
+
+/** Puts a hover card beside the mouse at (x, y) (viewport px), below right, flipped to stay inside the window. */
+function placeCard(el: HTMLElement, x: number, y: number) {
+    const GAP = 14, MARGIN = 8
+    const w = el.offsetWidth, h = el.offsetHeight
+    const left = x + GAP + w > window.innerWidth - MARGIN ? x - GAP - w : x + GAP
+    const top = y + GAP + h > window.innerHeight - MARGIN ? y - GAP - h : y + GAP
+    el.style.left = `${Math.max(MARGIN, left)}px`
+    el.style.top = `${Math.max(MARGIN, top)}px`
+}
+
+/** A voltage in words: `230 kV`, `300 kV DC`, `de-energized (0 V)`. */
+const voltageWords = (v: TransmissionVoltage) => v === TransmissionVoltage.DE_ENERGIZED ? 'de-energized (0 V)' : voltageTitle(v)
+
+/**
+ * The details of the circuit under the mouse in the tower drawing: its name and line(s), rated and energized voltage,
+ * conductor, mount and tower type, ends, tower (duct bank) position, length and current when known, planned, its
+ * warnings.
+ * Fixed on the window (placed by `placeCard`), so the panel's scrolling does not clip it; the mouse goes through it.
+ */
+function CircuitCard({slot, ref}: { slot: TowerSlot; ref: Ref<HTMLDivElement> }) {
+    const ed = useNetworkEditor()
+    const c = slot.circuit
+    const lines = circuitLines(ed.doc, c.id)
+    const from = endLocation(ed.doc, c.id, CIRCUIT_END_FROM), to = endLocation(ed.doc, c.id, CIRCUIT_END_TO)
+    const warnings = circuitWarnings(ed.doc, c.id)
+    const reVolted = !!c.energizedVoltage && c.energizedVoltage !== c.voltage
+    const rows: [string, ReactNode][] = [
+        [lines.length > 1 ? 'Lines' : 'Line', lines.length ? lines.map(l => l.name).join(', ') : <span className="muted">none</span>],
+        ['Voltage', <>{c.voltage ? `${voltageWords(c.voltage)} rated` : <span className="muted">rated –</span>}{reVolted ? `, energized ${voltageWords(c.energizedVoltage!)}` : ''}</>],
+        ['Conductor', conductorText(c)],
+        ['Mount', c.mountType ? enumLabel(c.mountType) : <span className="muted">not set</span>],
+        [CIRCUIT_END_FROM, from?.label ?? <span className="muted">loose</span>],
+        [CIRCUIT_END_TO, to?.label ?? <span className="muted">loose</span>],
+        ['Position', <>{GROUP_TITLE[slot.kind]} {slot.group}, circuit {towerNumberLabel(slot.number)}{slot.auto ? <span className="muted"> · auto</span> : null}</>],
+    ]
+    if (c.towerType) rows.splice(rows.length - 1, 0, ['Tower type', enumLabel(c.towerType)])
+    if (c.lengthKm !== undefined) rows.push(['Length', `${c.lengthKm} km`])
+    if (c.current !== undefined) rows.push(['Current', `${c.current} A`])
+    const kind = c.planned ? 'planned' : ''
+    return (
+        <div ref={ref} className="circuit-card" role="tooltip">
+            <div className="circuit-card-title"><VoltageSwatch circuit={c}/> <strong>{c.name}</strong> <span className="muted">{kind}</span></div>
+            <dl>
+                {rows.map(([k, v]) => [<dt key={`k${k}`}>{k}</dt>, <dd key={`v${k}`}>{v}</dd>])}
+            </dl>
+            {warnings.length ? <div className="warn-dot">⚠ {warnings.join(', ')}</div> : null}
+            <div className="muted">Click to open the circuit</div>
+        </div>
+    )
+}
+
+/** The kinds of cable groups the tower drawing lays after its towers. */
+type CableGroupKind = Exclude<CircuitGroupKind, 'tower'>
+
+/**
+ * One cable group of the tower drawing, its circuits in rows of two (1 / 2 the top row, left / right, looking from the
+ * path's FROM end), each as its three phase cables in a trefoil, a pyramid of three touching cables (one on top, two
+ * below): solid in the energized voltage's colour, ringed thinly in the rated one's when that differs, paler when
+ * planned; a place without a circuit is a faint dashed trefoil. Each circuit is named under its cables, the group under
+ * it by its prefix (C<n>, U<n>, D<n>, S<n>). By its kind:
+ * - a duct bank: a square concrete encasement buried `COVER` below the ground line;
+ * - a submarine group: the same in water, a blue body from the water surface (at the ground line's level) down, waves
+ *   on top;
+ * - a U-trench: an open trench in the ground, its walls in a U, with a support bar across it per row (one in the
+ *   middle for a single row), the cables lying on it;
+ * - a cable ladder: an H-frame standing on the ground, two poles left and right with a bar between them per row (the H's
+ *   crossbar), the cables lying on it.
+ */
+function CableGroup({kind, group, slots, x, groundY, label, energizedColor, ratedColor, onPick, hoverOn}: {
+    kind: CableGroupKind; group: number; slots: TowerSlot[]; x: number; groundY: number
+    label: (c: TransmissionCircuitRecord) => string; energizedColor: (c: TransmissionCircuitRecord) => string; ratedColor: (c: TransmissionCircuitRecord) => string
+    onPick: (c: TransmissionCircuitRecord) => void
+    /** Mouse handlers showing a circuit's details card (the tower drawing's). */
+    hoverOn: (s?: TowerSlot) => object
+}) {
+    const {CELL_W, CELL_H, PAD, R, WALL, POLE, BAR, WATER} = CableGroup
+    const rows = Math.max(1, ...slots.map(s => s.level))
+    const w = 2 * CELL_W + 2 * PAD, h = CableGroup.height(slots)
+    const x0 = x + (CableGroup.WIDTH - w) / 2
+    /** Top of the rows: a duct bank and a submarine group under their cover, a U-trench open at the ground, a cable ladder standing on it. */
+    const y0 = kind === 'uTrench' ? groundY : kind === 'cableLadder' ? groundY - h : groundY + CableGroup.COVER
+    /** Laid on support bars (a U-trench, a cable ladder), not held in an encasement. */
+    const laid = kind === 'uTrench' || kind === 'cableLadder'
+    const rowTop = (level: number) => y0 + PAD + (level - 1) * CELL_H
+    /** Top of the support bar of a row: just under the largest cables'. */
+    const barY = (level: number) => rowTop(level) + 12 + R * 1.58 + 0.6
+    /** The three cables of a trefoil of radius `r` centred at (cx, cy): one on top, two touching below it. */
+    const trefoil = (cx: number, cy: number, r: number): [number, number][] => [[cx, cy - r * 1.15], [cx - r, cy + r * 0.58], [cx + r, cy + r * 0.58]]
+    /**
+     * A circuit's cables: one trefoil per cable of its bundle (a phase of a twin-bundle circuit is two cables), side by
+     * side, smaller the more there are so they fit the cell.
+     */
+    const trefoils = (cx: number, cy: number, bundle?: number): { r: number; pts: [number, number][] } => {
+        const n = Math.max(1, bundle ?? 1)
+        const r = n <= 2 ? R : n <= 4 ? 3.2 : 2.4
+        const step = 4 * r + 2, first = cx - (n - 1) * step / 2
+        return {r, pts: Array.from({length: n}, (_, i) => trefoil(first + i * step, cy, r)).flat()}
+    }
+    /** Centre height of a trefoil of radius `r` in a row: in the encasement as it is; on a support bar, lying on it. */
+    const centreY = (level: number, r: number) => laid ? barY(level) - 0.5 - r * 1.58 : rowTop(level) + 12
+    /** A wavy line across the group at height y: arcs alternately up and down, about 6 px each. */
+    const waves = (y: number, amplitude: number) => {
+        const n = Math.max(2, Math.round(w / 6)), step = w / n
+        let d = `M${x0} ${y}`
+        for (let i = 0; i < n; i++) d += ` q${step / 2} ${i % 2 ? amplitude : -amplitude} ${step} 0`
+        return d
+    }
+    /** The ground beside the group: all across but over a U-trench's opening (with its walls) and the water. */
+    const gap = kind === 'uTrench' ? WALL : kind === 'submarine' ? 0 : undefined
+    const ground = {stroke: 'currentColor', strokeWidth: 1, opacity: 0.4}
+    const concrete = {fill: 'currentColor', fillOpacity: 0.15, stroke: 'currentColor', strokeWidth: 1.1, strokeLinejoin: 'round' as const}
+    const name = `${CIRCUIT_GROUP_NAMES[kind].name} ${group}`
+    const bars = laid && Array.from({length: rows}, (_, i) => i + 1).map(level => (
+        <rect key={`bar${level}`} x={x0} y={barY(level)} width={w} height={BAR} {...concrete} fillOpacity={0.35}/>
+    ))
+    return (
+        <g>
+            {gap === undefined
+                ? <line x1={x} y1={groundY} x2={x + CableGroup.WIDTH} y2={groundY} {...ground}/>
+                : <>
+                    <line x1={x} y1={groundY} x2={x0 - gap} y2={groundY} {...ground}/>
+                    <line x1={x0 + w + gap} y1={groundY} x2={x + CableGroup.WIDTH} y2={groundY} {...ground}/>
+                </>}
+            {kind === 'ductBank' && (
+                <rect x={x0} y={y0} width={w} height={h} rx={2} fill="currentColor" fillOpacity={0.08} stroke="currentColor" strokeWidth={1.3}>
+                    <title>{name}</title>
+                </rect>
+            )}
+            {kind === 'submarine' && (
+                <g>
+                    <path d={`${waves(groundY, 2.2)} L${x0 + w} ${y0 + h} L${x0} ${y0 + h} Z`} fill={WATER} fillOpacity={0.22} stroke="none">
+                        <title>{name}</title>
+                    </path>
+                    <path d={`M${x0} ${groundY} L${x0} ${y0 + h} L${x0 + w} ${y0 + h} L${x0 + w} ${groundY}`} fill="none" stroke={WATER} strokeWidth={1} strokeOpacity={0.5}/>
+                    <path d={waves(groundY, 2.2)} fill="none" stroke={WATER} strokeWidth={1.5}/>
+                    <path d={waves(groundY + 6, 1.6)} fill="none" stroke={WATER} strokeWidth={1} strokeOpacity={0.6}/>
+                </g>
+            )}
+            {kind === 'uTrench' && (
+                <g>
+                    {/* the walls and floor in a U, open at the ground */}
+                    <path d={`M${x0 - WALL} ${groundY} L${x0 - WALL} ${y0 + h + WALL} L${x0 + w + WALL} ${y0 + h + WALL} L${x0 + w + WALL} ${groundY} L${x0 + w} ${groundY} L${x0 + w} ${y0 + h} L${x0} ${y0 + h} L${x0} ${groundY} Z`} {...concrete}>
+                        <title>{name}</title>
+                    </path>
+                    {bars}
+                </g>
+            )}
+            {kind === 'cableLadder' && (
+                <g>
+                    {/* the H-frame: two poles standing on the ground, a crossbar per row between them */}
+                    {[x0 - POLE, x0 + w].map(px => (
+                        <rect key={px} x={px} y={y0 - 4} width={POLE} height={groundY - y0 + 4} {...concrete} fillOpacity={0.3}>
+                            <title>{name}</title>
+                        </rect>
+                    ))}
+                    {bars}
+                </g>
+            )}
+            {Array.from({length: rows}, (_, i) => i + 1).map(level => [1, 2].map(side => {
+                const s = slots.find(t => t.level === level && t.side === side)
+                const cx = x0 + PAD + (side - 1) * CELL_W + CELL_W / 2
+                const fill = s ? energizedColor(s.circuit) : undefined, outline = s ? ratedColor(s.circuit) : undefined
+                /** Under the cables: on a support bar under the bar. */
+                const labelY = laid ? barY(level) + BAR + 7.5 : rowTop(level) + 12 + R * 1.58 + 10
+                return (
+                    <g key={`${level}-${side}`} style={{cursor: s ? 'pointer' : undefined}} onClick={() => s && onPick(s.circuit)} {...hoverOn(s)}>
+                        {s ? (() => {
+                            const t = trefoils(cx, 0, s.circuit.bundle)
+                            const cy = centreY(level, t.r)
+                            return t.pts.map(([px, py], p) => <circle key={p} cx={px} cy={cy + py} r={t.r} fill={fill} fillOpacity={s.circuit.planned ? 0.5 : 1}
+                                                                      stroke={outline !== fill ? outline : 'none'} strokeWidth={0.9}/>)
+                        })() : trefoil(cx, centreY(level, R), R).map(([px, py], p) => <circle key={p} cx={px} cy={py} r={R - 0.6} fill="none" stroke="currentColor" strokeDasharray="1.5 1.5" opacity={0.45}/>)}
+                        {s && <text x={cx} y={labelY} fontSize={7.5} fontWeight={700} textAnchor="middle" fill={fill}
+                                    style={{paintOrder: 'stroke', stroke: 'var(--panel, #fff)', strokeWidth: 3}}>{label(s.circuit)}</text>}
+                    </g>
+                )
+            }))}
+            <text x={x0 + w / 2} y={(kind === 'cableLadder' ? groundY : kind === 'uTrench' ? y0 + h + WALL : y0 + h) + 11} fontSize={8} fontWeight={700} textAnchor="middle" fill="currentColor"
+                  opacity={0.8}>{`${CIRCUIT_GROUP_NAMES[kind].prefix}${group}`}</text>
+        </g>
+    )
+}
+/** Cell of one circuit (px), the padding around the rows, a duct bank's cover under the ground line, the cable radius. */
+CableGroup.CELL_W = 60
+CableGroup.CELL_H = 38
+CableGroup.PAD = 8
+CableGroup.COVER = 16
+CableGroup.R = 4.6
+/** A U-trench's wall, a cable ladder's pole and a support bar, thick (px). */
+CableGroup.WALL = 4
+CableGroup.POLE = 4
+CableGroup.BAR = 3.5
+/** Colour of the water a submarine group lies in. */
+CableGroup.WATER = '#2b7bd1'
+/** Room one cable group takes across the drawing. */
+CableGroup.WIDTH = 2 * 60 + 2 * 8 + 24
+/** Height of the rows of a group (rows of two), with the padding around them. */
+CableGroup.height = (slots: TowerSlot[]) => Math.max(1, ...slots.map(s => s.level)) * CableGroup.CELL_H + 2 * CableGroup.PAD
+/** How far a group reaches above the ground line: a cable ladder's poles. */
+CableGroup.above = (kind: CableGroupKind, slots: TowerSlot[]) => kind === 'cableLadder' ? CableGroup.height(slots) + 4 : 0
+/** How far a group reaches below the ground line, its name included. */
+CableGroup.below = (kind: CableGroupKind, slots: TowerSlot[]) =>
+    (kind === 'cableLadder' ? 0 : kind === 'uTrench' ? CableGroup.height(slots) + CableGroup.WALL : CableGroup.COVER + CableGroup.height(slots)) + 14
 
 /**
  * A circuit template picker grouped for the yards the circuit connects to (`circuitTemplateGroups`): one group per
@@ -2246,22 +2519,69 @@ function conductorText(c: TransmissionCircuitRecord): string {
 }
 
 /** Fetches a conductor template and hands its values to `set`; without an id, or when the template cannot be loaded, the GENERIC conductor is used. */
-async function loadConductor(id: string | undefined, set: (c: TransmissionConductor | undefined) => void) {
+async function loadConductor(id: string | undefined, set: (c: TransmissionConductor | undefined, suits?: ConductorMountType[]) => void) {
     if (!id) {
         set(genericConductor())
         return
     }
     try {
         const t = await api.templates.get(TemplateKind.TRANSMISSION_CONDUCTOR, id)
-        set(conductorFromTemplate(t.data as TransmissionConductorTemplate))
+        const data = t.data as TransmissionConductorTemplate
+        // with the mounts that suit it, so the circuit's mount type can follow (`templateMount`)
+        set(conductorFromTemplate(data), conductorMountTypes(data))
     } catch (e) {
         window.alert(`${(e as Error).message}\n\nThe GENERIC conductor (size 0, SQMM) is used instead.`)
         set(genericConductor())
     }
 }
 
+/**
+ * A circuit's mount type and, where it applies (an aerial mount; without one, a conductor that is not a cable), its
+ * tower type: grid cells (use inside a `form-grid`). The mounts that suit the wire type (`defaultMountTypes`) are
+ * listed first, the others after them; the tower type is dropped when the mount stops being an aerial one.
+ */
+function MountFields({meta, wireType, value, onChange, className}: {
+    meta: MetaResponse; wireType?: TransmissionWireType; value: CircuitMount; onChange: (m: CircuitMount) => void; className?: string
+}) {
+    const cable = wireType === TransmissionWireType.XLPE
+    const suits = defaultMountTypes(wireType ?? TransmissionWireType.GENERIC)
+    const others = (meta.enums.conductorMountType as ConductorMountType[]).filter(m => !suits.includes(m))
+    const towers = towerTypeApplies(value.mountType, wireType)
+    const setMount = (mountType: ConductorMountType | undefined) =>
+        onChange({mountType, towerType: value.towerType && towerTypeApplies(mountType, wireType) ? value.towerType : undefined})
+    return (
+        <>
+            <Field label="Mount type" className={className}
+                   hint={value.mountType && !suits.includes(value.mountType) ? `not one for ${cable ? 'a cable (XLPE)' : 'an aerial conductor'}` : undefined}>
+                <select value={value.mountType ?? ''} onChange={e => setMount((e.target.value || undefined) as ConductorMountType | undefined)}
+                        title="How the conductors are carried: a Cable Ladder, U-Trench, Duct Bank or Submarine circuit is drawn in a group of that kind after the towers, each kind numbered on its own">
+                    <option value="">not set</option>
+                    <optgroup label={cable ? 'For a cable (XLPE)' : 'For an aerial conductor'}>
+                        {suits.map(m => <option key={m} value={m}>{enumLabel(m)}</option>)}
+                    </optgroup>
+                    <optgroup label={cable ? 'For an aerial conductor' : 'For a cable (XLPE)'}>
+                        {others.map(m => <option key={m} value={m}>{enumLabel(m)}</option>)}
+                    </optgroup>
+                </select>
+            </Field>
+            {towers ? <SelectField label="Tower type" value={value.towerType} options={meta.enums.towerType} allowEmpty emptyLabel="None (default drawing)" className={className}
+                                   onChange={v => onChange({...value, towerType: v as TowerType | undefined})}/>
+                : <Field label="Tower type" className={className} hint="for an aerial mount only"><select disabled value=""><option value="">–</option></select></Field>}
+        </>
+    )
+}
+
 /** Conductor of a circuit: "fill from template" plus size / unit / type / code, each editable. Renders grid cells (use inside a `form-grid`). */
-function ConductorFields({meta, value, onChange, compact}: { meta: MetaResponse; value?: TransmissionConductor; onChange: (c: TransmissionConductor | undefined) => void; compact?: boolean }) {
+function ConductorFields({meta, value, onChange, onMountTypes, compact}: {
+    meta: MetaResponse; value?: TransmissionConductor; onChange: (c: TransmissionConductor | undefined) => void
+    /** A conductor template was copied: the mounts that suit it (the circuit's mount type follows, `templateMount`). */
+    onMountTypes?: (suits: ConductorMountType[], conductor?: TransmissionConductor) => void; compact?: boolean
+}) {
+    /** Copies a conductor template's values, and hands on the mounts that suit it. */
+    const fromTemplate = (id: string) => void loadConductor(id, (c, suits) => {
+        onChange(c)
+        if (suits) onMountTypes?.(suits, c)
+    })
     const {templates} = useTemplates(TemplateKind.TRANSMISSION_CONDUCTOR)
     const set = (patch: Partial<TransmissionConductor>) => onChange({...genericConductor(), ...value, ...patch})
     const summary = value ? `${value.size} ${value.unit} ${value.type}${value.code ? ` (${value.code})` : ''}` : 'none (GENERIC when saved)'
@@ -2275,7 +2595,7 @@ function ConductorFields({meta, value, onChange, compact}: { meta: MetaResponse;
                 <SelectField label="Conductor from template" value={undefined} emptyLabel="choose a conductor template…" options={templates.map(t => ({value: t.id, label: t.name}))}
                              onChange={v => {
                                  setPicking(false)
-                                 if (v) void loadConductor(v, onChange)
+                                 if (v) fromTemplate(v)
                              }}/>
             ) : (
                 <div className="field">
@@ -2305,8 +2625,8 @@ function ConductorFields({meta, value, onChange, compact}: { meta: MetaResponse;
                 <SelectField label="Conductor from template" value={undefined} emptyLabel="choose a conductor template…" options={templates.map(t => ({value: t.id, label: t.name}))} className="span-all"
                              onChange={v => {
                                  setPicking(false)
-                                 if (v) void loadConductor(v, onChange)
-                             }} hint="Copies size, unit, type and code into the fields below"/>
+                                 if (v) fromTemplate(v)
+                             }} hint="Copies size, unit, type and code into the fields below (the mount type follows the conductor's)"/>
             ) : (
                 <div className="toolbar span-all">
                     <span className="small">Conductor: <b>{summary}</b></span>
@@ -2463,7 +2783,7 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
             const t = await api.templates.get(TemplateKind.TRANSMISSION_CIRCUIT, id)
             const data = t.data as TransmissionCircuitTemplateData
             d.setDraft(x => ({...x, voltage: data.voltage, bundle: data.bundle, conductorTemplateId: undefined}))
-            await loadConductor(data.conductorId, c => d.setDraft(x => ({...x, conductor: c})))
+            await loadConductor(data.conductorId, (c, suits) => d.setDraft(x => ({...x, conductor: c, ...templateMount(x, suits, data.mountType, c?.type)})))
         } catch (e) {
             window.alert((e as Error).message)
         }
@@ -2590,13 +2910,14 @@ function CircuitPanel({meta, record, setMode, locate}: MapPanelsProps & { record
                              hint={reVolted ? 'Differs from the rated voltage: drawn in this colour with a dotted overlay' : 'Set from the connection when an end is attached'}
                              error={voltageMismatch.length ? `differs from the connection at ${voltageMismatch.map(m => m.end).join(' and ')}` : undefined}/>
                 <NumberField label="Bundle" value={d.draft.bundle} min={1} step={1} onChange={v => d.set('bundle', v)}/>
-                <ConductorFields meta={meta} value={d.draft.conductor} onChange={v => d.set('conductor', v)}/>
+                <ConductorFields meta={meta} value={d.draft.conductor} onChange={v => d.set('conductor', v)} onMountTypes={(suits, c) => d.setDraft(x => ({...x, ...templateMount(x, suits, undefined, c?.type)}))}/>
                 <NumberField label="Length (km)" value={d.draft.lengthKm} min={0} onChange={v => d.set('lengthKm', v)}/>
-                <NumberField label="Line group (tower)" value={d.draft.lineGroup} min={1} step={1} onChange={v => d.set('lineGroup', v)}
-                             hint="Towers run side by side, 1 on the left; empty = assigned when drawn, two circuits per tower"/>
-                <SelectField label="Circuit on the tower" value={d.draft.groupCircuit === undefined ? undefined : String(d.draft.groupCircuit)} allowEmpty emptyLabel="auto"
+                <MountFields meta={meta} wireType={d.draft.conductor?.type} value={d.draft} onChange={m => d.setDraft(x => ({...x, ...m}))}/>
+                <NumberField label={GROUP_FIELDS[circuitGroupKind(d.draft)].group} value={d.draft.lineGroup} min={1} step={1} onChange={v => d.set('lineGroup', v)}
+                             hint={GROUP_FIELDS[circuitGroupKind(d.draft)].groupHint}/>
+                <SelectField label={GROUP_FIELDS[circuitGroupKind(d.draft)].place} value={d.draft.groupCircuit === undefined ? undefined : String(d.draft.groupCircuit)} allowEmpty emptyLabel="auto"
                              options={Array.from({length: 6}, (_, i) => ({value: String(i + 1), label: towerNumberLabel(i + 1)}))}
-                             onChange={v => d.set('groupCircuit', v ? Number(v) : undefined)} hint="Looking from the path's FROM end"/>
+                             onChange={v => d.set('groupCircuit', v ? Number(v) : undefined)} hint={GROUP_FIELDS[circuitGroupKind(d.draft)].placeHint}/>
                 <CheckboxField label="Planned (not built yet): drawn dotted in a dull voltage colour; a built connection or line using it gets a warning" checked={!!d.draft.planned} onChange={v => d.set('planned', v || undefined)} className="span-all"/>
                 <SelectField label="Transmission path" value={d.draft.pathId} options={ed.doc.paths.map(p => ({value: p.id, label: `${p.name} (${p.waypoints.length} pts, ${ed.doc.circuits.filter(c => c.pathId === p.id).length} circuits)`}))}
                              allowEmpty emptyLabel="No path (dashed line between its ends)" onChange={v => d.set('pathId', v)} className="span-all"
@@ -2762,6 +3083,8 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
     const [templateId, setTemplateId] = useState<string | undefined>()
     const [bundle, setBundle] = useState<number | undefined>()
     const [conductor, setConductor] = useState<TransmissionConductor | undefined>(genericConductor)
+    /** How the conductors are carried, and the tower type (an aerial mount only): set from the templates picked, editable. */
+    const [mount, setMount] = useState<CircuitMount>({})
     const [count, setCount] = useState<number | undefined>(1)
     const [lengthKm, setLengthKm] = useState<number | undefined>()
     const [legs, setLegs] = useState<NewLineLegSpec[]>([])   // route choice per leg; an empty entry reuses an existing path when there is one
@@ -2816,7 +3139,10 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
             const data = t.data as TransmissionCircuitTemplateData
             setVoltage(data.voltage)
             setBundle(data.bundle)
-            void loadConductor(data.conductorId, setConductor)
+            void loadConductor(data.conductorId, (c, suits) => {
+                setConductor(c)
+                setMount(m => templateMount(m, suits, data.mountType, c?.type))
+            })
         } catch (e) {
             window.alert((e as Error).message)
         }
@@ -2824,9 +3150,9 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
 
     const spec: NewLineSpec = {
         from, to, vias: chosenVias, circuits: count ?? 0, energizedVoltage: energizedVoltage as TransmissionVoltage | undefined,
-        voltage: voltage as TransmissionVoltage | undefined, bundle, conductor, lengthKm, legs, planned, reuseTakeOffs,
+        voltage: voltage as TransmissionVoltage | undefined, bundle, conductor, lengthKm, legs, planned, ...mount, reuseTakeOffs,
     }
-    const plan = useMemo(() => buildNewLinePlan(doc, spec), [doc, from, to, stopsKey, energizedVoltage, count, templateId, voltage, bundle, conductor, lengthKm, legs, planned, reuseTakeOffs])  // eslint-disable-line react-hooks/exhaustive-deps
+    const plan = useMemo(() => buildNewLinePlan(doc, spec), [doc, from, to, stopsKey, energizedVoltage, count, templateId, voltage, bundle, conductor, lengthKm, legs, planned, mount, reuseTakeOffs])  // eslint-disable-line react-hooks/exhaustive-deps
     const freeTakeOffNote = [
         plan.freeTakeOffs.from.length ? `${fromYard?.yardName ?? 'FROM'}: ${plan.freeTakeOffs.from.map(t => t.lineName).join(', ')}` : '',
         plan.freeTakeOffs.to.length ? `${toYard?.yardName ?? 'TO'}: ${plan.freeTakeOffs.to.map(t => t.lineName).join(', ')}` : '',
@@ -2895,7 +3221,8 @@ function NewLineWizard({meta, locate, draft, setDraft, onDone}: { meta: MetaResp
                     setLengthTouched(true)
                     setLengthKm(v)
                 }} hint={km !== undefined ? `straight ${km} km` : undefined} className="span-2"/>
-                <ConductorFields meta={meta} value={conductor} onChange={setConductor} compact/>
+                <ConductorFields meta={meta} value={conductor} onChange={setConductor} onMountTypes={(suits, c) => setMount(m => templateMount(m, suits, undefined, c?.type))} compact/>
+                <MountFields meta={meta} wireType={conductor?.type} value={mount} onChange={setMount} className="span-3"/>
                 <label className="span-all small inline-check" title="Take-offs, circuits, lines and new connections are created planned and drawn in grey">
                     <input type="checkbox" checked={planned} onChange={e => setPlanned(e.target.checked)}/> Planned line (not built yet)
                 </label>
@@ -3330,6 +3657,8 @@ function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsPro
     const [voltage, setVoltage] = useState<string | undefined>()
     const [bundle, setBundle] = useState<number | undefined>()
     const [conductor, setConductor] = useState<TransmissionConductor | undefined>(genericConductor)
+    /** How the conductors are carried, and the tower type (an aerial mount only): set from the templates picked, editable. */
+    const [mount, setMount] = useState<CircuitMount>({})
     const [lengthKm, setLengthKm] = useState<number | undefined>()
     const [lengthTouched, setLengthTouched] = useState(false)
     /** An existing path's id, NEW_PATH, or unset = the best path between the places when there is one. */
@@ -3344,7 +3673,7 @@ function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsPro
     const suggestedVoltage = suggestedCircuitVoltage(doc, fromSpec, toSpec)
     const spec: NewCircuitSpec = {
         from: fromSpec, to: toSpec,
-        name, id: circuitId, voltage: (voltage as TransmissionVoltage | undefined) ?? suggestedVoltage, bundle, conductor, lengthKm,
+        name, id: circuitId, voltage: (voltage as TransmissionVoltage | undefined) ?? suggestedVoltage, bundle, conductor, lengthKm, ...mount,
         pathId: pathPick && pathPick !== NEW_PATH ? pathPick : undefined, newPath: pathPick === NEW_PATH, newPathName: pathName, newPathId,
         energizedVoltage: energized as TransmissionVoltage | undefined,
     }
@@ -3363,7 +3692,10 @@ function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsPro
             const data = t.data as TransmissionCircuitTemplateData
             setVoltage(data.voltage)
             setBundle(data.bundle)
-            void loadConductor(data.conductorId, setConductor)
+            void loadConductor(data.conductorId, (c, suits) => {
+                setConductor(c)
+                setMount(m => templateMount(m, suits, data.mountType, c?.type))
+            })
         } catch (e) {
             window.alert((e as Error).message)
         }
@@ -3417,7 +3749,8 @@ function NewCircuitWizard({meta, draft, setDraft, setMode, locate}: MapPanelsPro
                                        hint="Fills voltage, bundle and conductor"/>
                 <SelectField label="Voltage (rated)" value={voltage} options={meta.enums.transmissionVoltage} allowEmpty emptyLabel={`from the ends (${suggestedVoltage ? enumLabel(suggestedVoltage) : '–'})`} onChange={setVoltage}/>
                 <NumberField label="Bundle" value={bundle} min={1} step={1} onChange={setBundle}/>
-                <ConductorFields meta={meta} value={conductor} onChange={setConductor}/>
+                <ConductorFields meta={meta} value={conductor} onChange={setConductor} onMountTypes={(suits, c) => setMount(m => templateMount(m, suits, undefined, c?.type))}/>
+                <MountFields meta={meta} wireType={conductor?.type} value={mount} onChange={setMount}/>
                 <NumberField label="Length (km)" value={lengthKm} min={0} onChange={v => {
                     setLengthTouched(true)
                     setLengthKm(v)

@@ -1,5 +1,7 @@
 import {ReactNode} from 'react'
 import type {ValidationIssue} from '@shared/templates/validation'
+import {CONDUCTOR_MOUNT_TYPE_LABELS} from '@shared/models/transmission.conductor'
+import {TOWER_TYPE_LABELS} from '@shared/models/transmission.tower'
 
 /** Finds the first issue whose path equals (or starts with) `path`. */
 export function issueFor(issues: ValidationIssue[] | undefined, path: string): string | undefined {
@@ -109,6 +111,9 @@ interface SelectFieldProps {
 /** Display labels of enum values whose code alone does not say enough; others show as they are. */
 const ENUM_LABELS: Record<string, string> = {
     '0V': '0V (De-Energized)',
+    XLPE: 'XLPE (cable)',
+    ...CONDUCTOR_MOUNT_TYPE_LABELS,
+    ...TOWER_TYPE_LABELS,
 }
 
 /** How an enum value is shown in selects and lists. */

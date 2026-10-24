@@ -27,7 +27,8 @@
  * Pure: works on a document and returns ops plus a summary for the preview.
  */
 import {energizedVsRated, TransmissionVoltage} from '@shared/models/transmission.voltage'
-import {genericConductor, type TransmissionConductor} from '@shared/models/transmission.conductor'
+import {type ConductorMountType, genericConductor, type TransmissionConductor} from '@shared/models/transmission.conductor'
+import type {TowerType} from '@shared/models/transmission.tower'
 import {
     CIRCUIT_END_FROM,
     CIRCUIT_END_TO,
@@ -89,6 +90,10 @@ export interface NewLineSpec {
     legs?: NewLineLegSpec[]
     /** Planned (not built yet): the take-offs, circuits, lines and new connections are created with `planned: true` (drawn in grey). */
     planned?: boolean
+    /** How the circuits' conductors are carried (DUCT_BANK: buried cables, in duct banks). */
+    mountType?: ConductorMountType
+    /** The towers they hang on (an aerial mount only): a hint for the tower drawing. */
+    towerType?: TowerType
     /** Attach the circuits to free take-offs the yards already have toward the other site (`<kV>_<other site>_L<n>`, lowest n first) instead of creating new ones; see `NewLinePlan.freeTakeOffs`. */
     reuseTakeOffs?: boolean
     /** Voltage the new sections are energized at; when empty, the one their yards bring (0 V when both ends are junctions). */
@@ -476,6 +481,7 @@ export function buildNewLinePlan(doc: NetworkDocument, spec: NewLineSpec): NewLi
             const circuit: TransmissionCircuitRecord = {
                 id: uniqueId(probe, cn.id), name: cn.name, pathId: path.id,
                 voltage: spec.voltage, energizedVoltage: lineVoltage, bundle: spec.bundle, conductor: spec.conductor ? {...spec.conductor} : genericConductor(), lengthKm: lengths[j], planned: spec.planned || undefined,
+                ...(spec.mountType ? {mountType: spec.mountType} : {}), ...(spec.towerType ? {towerType: spec.towerType} : {}),
             }
             push({type: 'upsert', collection: 'circuits', record: circuit})
             // the section's FROM end sits where its path starts

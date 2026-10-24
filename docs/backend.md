@@ -151,7 +151,8 @@ Issue paths for template payloads are prefixed `data.` (e.g.
 | `GET /api/meta` | `{ kinds: TemplateKindInfo[], enums: {...}, patterns: { templateId, windingKey }, version }` |
 
 `enums` carries every enum the forms need: `transmissionVoltage`,
-`transmissionWireType`, `transmissionWireUnit`, `transformerWindingSide`,
+`transmissionWireType`, `transmissionWireUnit`, `conductorMountType`,
+`towerType`, `transformerWindingSide`,
 `transformerWindingWiring`, `transformerWindingTapChanger`,
 `transformerCooling`. `kinds` is in display order with `label`, `pluralLabel`,
 `directory`, `description`.

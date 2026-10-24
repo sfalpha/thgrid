@@ -16,7 +16,8 @@
  */
 import {energizedVsRated, TransmissionVoltage, withinRating} from '@shared/models/transmission.voltage'
 import {nodeRunningVoltage, runningVoltagesAt} from '@shared/network/lines'
-import {genericConductor, type TransmissionConductor} from '@shared/models/transmission.conductor'
+import {type ConductorMountType, genericConductor, type TransmissionConductor} from '@shared/models/transmission.conductor'
+import type {TowerType} from '@shared/models/transmission.tower'
 import {
     CIRCUIT_END_FROM,
     CIRCUIT_END_TO,
@@ -69,6 +70,10 @@ export interface NewCircuitSpec {
     bundle?: number
     conductor?: TransmissionConductor
     lengthKm?: number
+    /** How the conductors are carried (DUCT_BANK: a buried cable, in a duct bank). */
+    mountType?: ConductorMountType
+    /** The tower it hangs on (an aerial mount only): a hint for the tower drawing. */
+    towerType?: TowerType
     /** Run on this path (one between the two places, either way); the best one there (`pathChoices[0]`) when empty. */
     pathId?: string
     /** Run on a new path even when one already goes between the two places (also when none does). */
@@ -338,6 +343,7 @@ export function buildNewCircuitPlan(doc: NetworkDocument, spec: NewCircuitSpec):
     const circuit: TransmissionCircuitRecord = {
         id: pickId(probe, spec.id, naming.id), name: naming.name, pathId: path.id,
         voltage: spec.voltage, energizedVoltage: energized, bundle: spec.bundle, conductor: spec.conductor ?? genericConductor(), lengthKm: spec.lengthKm,
+        ...(spec.mountType ? {mountType: spec.mountType} : {}), ...(spec.towerType ? {towerType: spec.towerType} : {}),
     }
     // attach both ends (the circuit is added last: the helpers' energize ops are not needed, the voltage is set above)
     const attach = (end: NewCircuitEndPlan, endSpec: NewCircuitEndSpec, circuitEnd: CircuitEnd) => {

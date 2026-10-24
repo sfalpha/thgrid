@@ -13,7 +13,7 @@ import {pathEndOf, takeOffCircuit, takeOffVoltage} from "./refs";
 import {CoordinatesProps} from "../models/coordinates";
 import {TransmissionVoltage} from "../models/transmission.voltage";
 import {junctionConnectionNaming} from "./naming";
-import {genericConductor} from "../models/transmission.conductor";
+import {ConductorMountType, genericConductor} from "../models/transmission.conductor";
 import {connectionOfEnd, recordById} from "./lookup";
 
 export {takeOffCircuit, takeOffVoltage}
@@ -308,6 +308,22 @@ export function migrateNetworkDocument(input: NetworkDocument): MigrationResult 
             return c
         })
         if (touched) doc = {...doc, circuits}
+    }
+
+    // v9 → a circuit states how its conductors are carried (`mountType`); a buried one (`underground`) lies in a duct bank.
+    type FlaggedCircuit = NetworkDocument['circuits'][number] & { underground?: unknown }
+    if (Array.isArray(doc.circuits) && (doc.circuits as FlaggedCircuit[]).some(c => c.underground !== undefined)) {
+        const circuits = (doc.circuits as FlaggedCircuit[]).map(c => {
+            if (c.underground === undefined) return c
+            const {underground, ...rest} = c
+            if (underground !== true || rest.mountType) {
+                changes.push(`circuit ${c.id}: dropped the underground flag`)
+                return rest
+            }
+            changes.push(`circuit ${c.id}: underground became the ${ConductorMountType.DUCT_BANK} mount type`)
+            return {...rest, mountType: ConductorMountType.DUCT_BANK}
+        })
+        doc = {...doc, circuits}
     }
 
     return {doc, changes}

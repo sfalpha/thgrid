@@ -10,7 +10,8 @@
  */
 import {ValidationIssue} from "../templates/validation";
 import {TransmissionVoltage} from "../models/transmission.voltage";
-import {TransmissionWireType, TransmissionWireUnit} from "../models/transmission.conductor";
+import {CONDUCTOR_MOUNT_TYPE_LABELS, ConductorMountType, TransmissionWireType, TransmissionWireUnit} from "../models/transmission.conductor";
+import {TOWER_TYPE_LABELS, TowerType, towerTypeApplies} from "../models/transmission.tower";
 import {GENERATION_LABELS, GenerationType} from "../models/generation";
 import {SubstationArrangement} from "../models/substation";
 import {SubstationBusType} from "../models/substation.bus";
@@ -36,6 +37,8 @@ import {
     NetworkNodeRef,
     nodeKey,
     ConnectionRecord,
+    CIRCUIT_GROUP_NAMES,
+    circuitGroupKind,
     isTransformerType,
     SubstationGroupRecord,
 } from "./records";
@@ -211,6 +214,9 @@ export function validateNetworkRecordShape(collection: NetworkCollectionName, re
             checkOptionalNumber(issues, record.bundle, p('bundle'), {integer: true, min: 1})
             checkOptionalNumber(issues, record.lineGroup, p('lineGroup'), {integer: true, min: 1})
             checkOptionalNumber(issues, record.groupCircuit, p('groupCircuit'), {integer: true, min: 1})
+            checkEnum(issues, record.mountType, p('mountType'), enumValues(ConductorMountType), false)
+            checkEnum(issues, record.towerType, p('towerType'), enumValues(TowerType), false)
+            if (record.underground !== undefined) issues.push({path: p('underground'), message: `underground is replaced by mountType (${ConductorMountType.DUCT_BANK})`})
             checkOptionalString(issues, record.conductorTemplateId, p('conductorTemplateId'))
             if (record.conductor !== undefined && record.conductor !== null) {
                 const cd = record.conductor
@@ -644,10 +650,19 @@ export function validateNetworkDocument(doc: unknown): ValidationIssue[] {
     const towerSeen = new Map<string, string>()
     d.circuits.forEach((c, i) => {
         if (!c.pathId || c.lineGroup === undefined || c.groupCircuit === undefined) return
-        const key = `${c.pathId}|${c.lineGroup}|${c.groupCircuit}`
+        // towers, duct banks and submarine groups are numbered apart
+        const kind = circuitGroupKind(c)
+        const key = `${c.pathId}|${kind}|${c.lineGroup}|${c.groupCircuit}`
         const first = towerSeen.get(key)
-        if (first) warn(`circuits.${i}.groupCircuit`, `circuit ${c.name} takes the tower position of ${first} (group ${c.lineGroup}, circuit ${c.groupCircuit}) on the same path`)
+        const {name} = CIRCUIT_GROUP_NAMES[kind]
+        if (first) warn(`circuits.${i}.groupCircuit`, `circuit ${c.name} takes the ${name} position of ${first} (${kind === 'tower' ? 'group' : name} ${c.lineGroup}, circuit ${c.groupCircuit}) on the same path`)
         else towerSeen.set(key, c.name)
+    })
+    // a tower type hangs aerial conductors only
+    d.circuits.forEach((c, i) => {
+        if (c.towerType && !towerTypeApplies(c.mountType, c.conductor?.type)) {
+            warn(`circuits.${i}.towerType`, `circuit ${c.name} has the tower type ${TOWER_TYPE_LABELS[c.towerType] ?? c.towerType}, but ${c.mountType ? `its mount (${CONDUCTOR_MOUNT_TYPE_LABELS[c.mountType] ?? c.mountType}) is not an aerial one` : 'its conductor is a cable'}`)
+        }
     })
     d.lines.forEach((l, i) => {
         if (l.planned) return

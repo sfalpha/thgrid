@@ -538,7 +538,7 @@ immediately.
   the top pair, 3 / 4 below; else assigned in name order: the next free number
   of its group, or two per new tower after the highest group in use): the
   towers run side by side, group 1 on the left of the path's direction, one lane
-  apart, and on a tower its circuits fill the lanes from the middle outwards
+  apart (then the cable ladders, U-trenches, duct banks and submarine groups of the circuits with those mounts, each kind numbered on its own), and on a tower its circuits fill the lanes from the middle outwards
   (1 left and 2 right in the middle, 3 / 4 outside them); the whole is centred,
   so one circuit runs on the path's line and the auto layout of S1 to S4 is two
   towers, S1 S2 | S3 S4. A path where any circuit
@@ -830,7 +830,7 @@ immediately.
   connections flip, they stay attached where they are), and the tower
   positions they set are mirrored, since the towers are seen from the FROM
   end (circuit 1 / 2, 3 / 4, … change sides, the towers come in the other
-  order), so the circuits keep hanging where they did; lines are not
+  order; each kind of cable group likewise, among itself), so the circuits keep hanging where they did; lines are not
   touched. One journaled step after a summary, as for *Re-route lines*;
   then renaming the path and its circuits by the model rules is offered
   (`<from>-<to>` and the circuit names after it read the other way round),
@@ -972,8 +972,11 @@ immediately.
   (`PathEndRow`; the same site / junction list feeds *+ Path* and *Re-route
   lines*), edit waypoints, *Swap from / to* (see above), circuits on the path with
   drill-down and ⚠ markers, each with its line(s) as links and a tower
-  position select ("auto (T1 1 (top left))" or a tower and number;
-  `CircuitsWithTower`), then, below the list, a collapsible *Towers* section
+  position select ("auto (T1 1 (top left))" or a tower and number; for a
+  cable circuit a cable ladder, U-trench, duct bank or submarine group position, C1, U1, D1, S1, …, numbered
+  apart from the towers; `CircuitsWithTower`; its mount type, when set, after
+  its name), then, below the list, a collapsible *Towers* section
+  (*Towers (n) · Cable ladders (n) · U-trenches (n) · Duct banks (n) · Submarine groups (n)*, the kinds the path has)
   (open by default; folding it is remembered, `thgrid.towerPanel`) with
   schematic lattice towers seen from the FROM end, one per line group side by
   side on a common ground line, each as tall as its pairs of circuits need,
@@ -985,14 +988,50 @@ immediately.
   1 / 2 on top, 3 / 4 below, three lattice cross-arms, one per phase (flat
   bottom chord, top chord rising to the body; the lowest reaches a little
   further), an insulator string hanging from each tip (solid; dotted grey
-  for a planned circuit; faint on an empty arm) with the conductor under it,
-  the left circuit's on the left, filled in the colour of the voltage it is
-  energized at (else its rated one) and outlined in its rated voltage's
-  colour, so a re-volted or de-energized circuit shows both, paler and
-  dashed when its position is assigned automatically, hollow where no
-  circuit hangs, named under its conductors by its line without the voltage
-  (else the tail of its name); a click on a circuit's conductors opens it);
-  the circuit panel has *Line group* and *Circuit on the tower* fields; plus a ⚠ list of any other yard / junction a
+  for a planned circuit; faint on an empty arm) with the conductors under it
+  as the circuit's bundle (`bundleLayout` in `towerLayout.ts`: one circle; a
+  twin bundle two side by side; three or more on a regular polygon, two on
+  top: a triangle hanging point down, a square, a pentagon, …),
+  the left circuit's on the left, solid circles of one size (a single
+  conductor as large as each of a bundle's, `CONDUCTOR_R`) in the colour of
+  the voltage it is energized at (else its rated one), ringed thinly in its
+  rated voltage's colour when that differs, so a re-volted or de-energized
+  circuit shows both, a hollow dashed circle where no circuit hangs, named under its conductors by its line without the voltage
+  (else the tail of its name); the mouse on a circuit's conductors (or
+  cables) shows its details card beside the mouse (`CircuitCard`): name,
+  planned, line(s), rated and energized voltage, conductor (bundle × size
+  unit type), mount type, FROM and TO ends, tower type when set, tower (duct
+  bank) position and whether it is assigned automatically, length and
+  current when set, its warnings; a click on a circuit's conductors opens it;
+  the cable circuits lie in groups after the towers (`CableGroup`; every
+  tower type is drawn like the default tower for now): cable ladders (C1,
+  …: an H-frame standing on the ground, two poles left and right with a
+  crossbar per row between them, the cables lying on it), U-trenches (U1, …:
+  an open trench in the ground, its walls in a U, a support bar across it
+  per row, one in the middle for a single row, the cables lying on it; the
+  ground line stops at its opening), duct banks (D1, …: a square concrete
+  encasement buried under the ground line) and submarine groups (S1, …: the
+  same in water, a blue body from the water surface at the ground line's
+  level down, waves on top), each with its circuits in rows of two (1 / 2 the
+  top row, left / right), each as its three phase cables in a trefoil, a
+  pyramid of three touching cables (one on top, two below), one trefoil per
+  cable of its bundle side by side (a twin-bundle cable circuit two trefoils,
+  smaller from three on), coloured like the conductors on the towers (paler
+  when planned), named under them, a faint dashed trefoil where no circuit
+  lies; a click on the cables opens the circuit);
+  the circuit panel has *Mount type* and *Tower type* selects (`MountFields`:
+  the mounts for the conductor's wire type first, an XLPE cable's cable
+  ladder, U-trench, duct bank and submarine, else the aerial ones, the others after
+  them, with a hint when the one picked is not for the conductor; the tower
+  type only for an aerial mount, without a mount for a conductor that is not
+  XLPE, dropped when the mount stops being aerial; *None (default drawing)*
+  when unset), set from the templates when one is applied (`templateMount`
+  in `circuitMount.ts`: the circuit template's mount, else the circuit's own
+  when the conductor template lists it, else the conductor's preferred one,
+  suspension I-string or duct bank), and *Line group* and *Circuit on the
+  tower* fields (*Cable ladder*, *U-trench*, *Duct bank* or *Submarine group* and the circuit's place in it with those mounts, `GROUP_FIELDS`; e.g. *Duct bank* and *Circuit in the duct bank* with the Duct Bank
+  mount; the line and circuit wizards have both selects too, set from the
+  templates picked); plus a ⚠ list of any other yard / junction a
   circuit of the path is connected at, "Lines over this path" listing every
   line that uses one of its circuits with the line's ends as links and which
   sections lie on the path, delete with its circuits), circuit (each attached

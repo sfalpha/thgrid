@@ -467,6 +467,21 @@ On the busy area. Every case checks that the result validates and names stay uni
 | DL-6 | the same, the line teed into the 230 kV splice at JQ | still fed through the tee: nothing set to 0 V |
 | DL-7 | the de-energized `230KV_MA_MC_L3` off both ends; nothing checked | already at 0 V, nothing to flip; refused |
 
+## 9. Mount types and cable groups (`towerLayout.ts`, `circuitMount.ts`, `web/test/underground.test.ts`) – automated
+
+| Id | Case | Current result |
+|---|---|---|
+| UG-1 | two aerial and two Duct Bank circuits, auto; a tower group set; Submarine, Cable Ladder, two U-Trench, Line Post and Horizontal Vee circuits | T1 / 1, T1 / 2, D1 / 1, D1 / 2: duct banks numbered apart; a new duct bank follows the highest duct bank, not the towers; S1 / 1, C1 / 1, U1 / 1, U1 / 2, T1 / 1, T1 / 2: each kind numbered from 1 |
+| UG-2 | lanes on the map | the towers' lanes left, the duct banks' right, centred (1.5, 0.5, −0.5, −1.5); left to right tower, cable ladder, U-trench, duct bank, submarine group (2, 1, 0, −1, −2) |
+| UG-3 | positions taken twice; unknown values | tower 1 / 1 and duct bank 1 / 1 on one path: no warning; two in duct bank 1 / 1: "takes the duct bank position of …"; duct bank 1 / 1 and submarine group 1 / 1: no warning; two in submarine group 1 / 1: warned; `mountType` and `towerType` must be known values |
+| UG-4 | the line and circuit wizards with a mount and tower type | their circuits get them; not asked: neither set |
+| UG-5 | reversing a path with tower 2 / 1 and duct bank 1 / 1 | T2 / 2 and D1 / 2: each kind mirrored among itself |
+| UG-6 | bundles on the towers (`bundleLayout`) | one circle; twin side by side; triple two on top, one below; quad a square; up to 8 the sub-conductors keep apart; the top one hangs at the insulator end |
+| UG-7 | an older document with `underground: true` / `false` (migration v9) | reported before migration; after it the Duct Bank mount / nothing, the flag dropped, both noted, nothing reported; a second migration changes nothing |
+| UG-8 | tower types (`towerTypeApplies`) | every aerial mount takes one, no cable mount does; without a mount by the conductor (not XLPE); a Duct Bank circuit with a tower type warned, a Horizontal Vee one not |
+| UG-9 | the conductors' mounts and a circuit's mount from templates (`templateMount`) | XLPE: cable ladder, U-trench, duct bank, submarine; others the aerial six; a template's list wins; preferred duct bank / I-string / the first; an XLPE conductor gives Duct Bank, a listed mount is kept, an aerial conductor after a cable gives I-string keeping the tower type, a circuit template's mount wins and drops the tower type with the aerial mount, no conductor template changes nothing |
+| UG-10 | template payloads | a conductor's `mountTypes`: known values, at least one, none twice, `underground` and the former Twisted Aerial refused; a circuit template's `mountType` a known value |
+
 ## 10. Circuit template pickers (`circuitTemplateGroups`, `web/test/templateOrder.test.ts`) – automated
 
 | Id | Case | Current result |

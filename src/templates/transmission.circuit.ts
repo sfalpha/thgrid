@@ -1,4 +1,5 @@
 import {TransmissionVoltage} from "../models/transmission.voltage";
+import {ConductorMountType} from "../models/transmission.conductor";
 import {TransmissionConductorTemplate} from "./transmission.conductor";
 
 /**
@@ -10,6 +11,7 @@ export interface TransmissionCircuitTemplate {
     voltage?: TransmissionVoltage
     bundle: number
     conductor: TransmissionConductorTemplate
+    mountType?: ConductorMountType
 }
 
 /**
@@ -24,4 +26,6 @@ export interface TransmissionCircuitTemplateData {
     voltage?: TransmissionVoltage
     bundle: number
     conductorId: string
+    /** How the circuit's conductors are carried (e.g. DUCT_BANK for a buried XLPE cable); unset: the conductor's preferred mount. */
+    mountType?: ConductorMountType
 }
