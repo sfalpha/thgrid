@@ -10,6 +10,7 @@ import './drafts.test'
 import './siteSize.test'
 import './sectionalize.test'
 import './extract.test'
+import './disconnect.test'
 
 const failed = runTests(process.argv[2])
 process.exitCode = failed ? 1 : 0

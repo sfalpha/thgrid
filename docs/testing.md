@@ -452,3 +452,17 @@ What `npm run sample:grid` takes from the EGAT network, on the busy area. Both c
 |---|---|---|
 | EX-1 | MA, one line away | the sites MB, MC, MD, ME, MS one line away; every line from MA and no other; JP (on the way to MC) and MS's site junction (MA – ME through it) kept, JQ and JX left out; connections hold kept circuit ends only; every yard of the kept sites |
 | EX-2 | MB, one and two lines away | one: MA, ME; two: MC, MD, MS besides, more lines, still only the busy area |
+
+## 8. Disconnect lines from a site's take-offs (`buildDisconnectPlan`, `web/test/disconnect.test.ts`) – automated
+
+On the busy area. Every case checks that the result validates and names stay unique.
+
+| Id | Case | Current result |
+|---|---|---|
+| DL-1 | the lines through MC's take-offs | the three from MA, each still leaving MA through a take-off |
+| DL-2 | `230KV_MA_MC_L1` off its take-off at MC | open at MC's site junction (created) in a node of its own, the line ends there; fed from MA: still 230 kV; the take-off stays, free |
+| DL-3 | the same, removing the take-off | the take-off gone, with every connection that held it |
+| DL-4 | both ends at once | open at the junctions of MC and MA; fed from nowhere: the line, its sections (rated 230 kV still) and the splice at JP at 0 V; the other JP line stays at 230 kV |
+| DL-5 | `115KV_MD_JQ_L1` (open at JQ) off its take-off at MD | fed from nowhere: 0 V, its open node at JQ too |
+| DL-6 | the same, the line teed into the 230 kV splice at JQ | still fed through the tee: nothing set to 0 V |
+| DL-7 | the de-energized `230KV_MA_MC_L3` off both ends; nothing checked | already at 0 V, nothing to flip; refused |

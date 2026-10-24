@@ -35,6 +35,7 @@ import {buildNewLinePlan, NewLineLegSpec, NewLineSpec, NewLineVia} from './lineW
 import {buildJoinCircuitsPlan, joinableReason} from './joinCircuits'
 import {buildBypassPlan, PassThrough, passThroughs} from './bypassJunction'
 import {buildSectionalizePlan, SectionalizePlan, sectionalizePathChoices, sectionalizeReason, SectionTarget} from './sectionalize'
+import {buildDisconnectPlan, linesThroughTakeOffs} from './disconnectLines'
 import {buildMergeAllDuplicatesPlan, buildMergePathsPlan, duplicatePathGroups, duplicatesOf, runsReversed} from './mergePaths'
 import {buildNewPathPlan} from './newPath'
 import {buildRouteViaPlan, pathsBetween, RouteVia, routeViaPathChoices, runVoltage, samePlace, yardChoices} from './routeVia'
@@ -953,8 +954,95 @@ function SitePanel({meta, record, navigate, locate}: MapPanelsProps & { record: 
                     </div>
                 )}
             </div>
+            <SiteTakeOffLinesPanel site={record} locate={locate}/>
             <LinesAtPanel refs={[...yards.map(y => ({kind: ConnectionJunctionKind.SUBSTATION, id: y.id})), ...(siteJunction ? [{kind: ConnectionJunctionKind.TRANSMISSION_JUNCTION, id: siteJunction.id}] : [])]} locate={locate}/>
         </>
+    )
+}
+
+/**
+ * The lines leaving this site through take-offs, with checkboxes: the checked ones are taken off their take-offs here
+ * in one step (`buildDisconnectPlan`) and end open at the site junction (created when missing); with *both ends*, at
+ * their other end too. A line fed from no yard afterwards is de-energized (its circuits, junction nodes and itself at
+ * 0 V); the take-offs left free can be removed. The outcome shows before running.
+ */
+function SiteTakeOffLinesPanel({site, locate}: { site: SubstationGroupRecord; locate?: (sel: Selection) => void }) {
+    const ed = useNetworkEditor()
+    const doc = ed.doc
+    const items = useMemo(() => linesThroughTakeOffs(doc, site.id), [doc, site.id])
+    const [checked, setChecked] = useState<Set<string>>(new Set())
+    const [bothEnds, setBothEnds] = useState(false)
+    const [removeTakeOffs, setRemoveTakeOffs] = useState(false)
+    useEffect(() => setChecked(new Set()), [site.id])
+    // drop checks of lines that no longer leave here (disconnected, or changed elsewhere)
+    useEffect(() => setChecked(prev => {
+        const alive = new Set(items.map(i => i.line.id))
+        const next = new Set([...prev].filter(id => alive.has(id)))
+        return next.size === prev.size ? prev : next
+    }), [items])
+    const ids = [...checked].join('\n')
+    const plan = useMemo(() => ids ? buildDisconnectPlan(doc, site.id, ids.split('\n'), {bothEnds, removeTakeOffs}) : undefined, [doc, site.id, ids, bothEnds, removeTakeOffs])
+    if (!items.length) return null
+    const allChecked = items.every(i => checked.has(i.line.id))
+    const toggle = (id: string) => setChecked(prev => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+    })
+    /** What happens to a line, for the list under the options and the confirmation. */
+    const outcome = (x: NonNullable<typeof plan>['lines'][number]) => `open at the site junction${x.ends.length > 1 ? 's' : ''} of ${x.ends.map(e => e.site.groupName).join(' and ')}; `
+        + (x.deEnergized ? 'fed from no yard: de-energized (0 V)' : x.stillAt ? `still fed from ${x.stillAt.site.groupName} (${x.stillAt.takeOff.lineName})` : 'still fed through a junction')
+    const run = () => {
+        if (!plan || plan.errors.length) return
+        const summary = [
+            `Disconnect ${plan.lines.length} line(s) from their take-offs at ${site.groupName}${bothEnds ? ' and at their other end' : ''}:`,
+            ...plan.lines.map(x => `• ${x.line.name}: ${outcome(x)}`),
+            plan.createdJunctions.length ? `Site junction(s) created: ${plan.createdJunctions.map(j => j.name ?? j.id).join(', ')}.` : '',
+            plan.deEnergized.circuits.length || plan.deEnergized.lines.length ? `Set to 0 V: ${plan.deEnergized.lines.length} line(s), ${plan.deEnergized.circuits.length} circuit(s), ${plan.deEnergized.connections.length} junction node(s).` : '',
+            plan.removedTakeOffs.length ? `Take-offs removed: ${plan.removedTakeOffs.map(t => t.lineName).join(', ')}.` : 'The take-offs stay, free.',
+        ].filter(Boolean).join('\n')
+        if (!window.confirm(`${summary}\n\nContinue?`)) return
+        if (ed.apply(plan.ops)) setChecked(new Set())
+    }
+    return (
+        <div className="panel">
+            <div className="panel-header">
+                <h3 style={{margin: 0}}>Lines through take-offs</h3>
+                <span className="spacer"/>
+                {items.length > 1 && <label className="small" style={{display: 'flex', gap: 4, alignItems: 'center'}}>
+                    <input type="checkbox" checked={allChecked} onChange={() => setChecked(allChecked ? new Set() : new Set(items.map(i => i.line.id)))}/> all
+                </label>}
+            </div>
+            <div className="find-results" style={{marginTop: 0}}>
+                {items.map(({line, here, others}) => (
+                    <label key={line.id} className="find-item" style={{alignItems: 'flex-start', padding: '3px 0'}}>
+                        <input type="checkbox" checked={checked.has(line.id)} onChange={() => toggle(line.id)} style={{marginTop: 3}}/>
+                        <span className="small">
+                            <span style={{color: voltageColor(line.voltage)}}>■</span> <a href="#" onClick={e => {
+                                e.preventDefault()
+                                ed.select({collection: 'lines', id: line.id})
+                                locate?.({collection: 'lines', id: line.id})
+                            }}><strong>{line.name}</strong></a>
+                            <span className="muted"> · {here.map(e => `${e.yard.yardName} take-off ${e.takeOff.lineName}`).join(', ')}
+                                {' · other end: '}{others.length ? others.map(e => `${e.site.groupName} take-off ${e.takeOff.lineName}`).join(', ') : `${refLabel(doc, here[0]?.lineEnd === 'from' ? line.to : line.from)} (no take-off)`}</span>
+                        </span>
+                    </label>
+                ))}
+            </div>
+            <label className="small inline-check" style={{marginTop: 6}} title="The line is then fed from no yard: it is de-energized (0 V)">
+                <input type="checkbox" checked={bothEnds} onChange={e => setBothEnds(e.target.checked)}/> Disconnect both ends (the other end into its site's junction too)
+            </label>
+            <label className="small inline-check" style={{marginTop: 4}}>
+                <input type="checkbox" checked={removeTakeOffs} onChange={e => setRemoveTakeOffs(e.target.checked)}/> Remove the take-offs left free
+            </label>
+            {plan && plan.errors.length === 0 && plan.lines.map(x => <p key={x.line.id} className="small" style={{margin: '6px 0 0'}}><b>{x.line.name}</b>: {outcome(x)}</p>)}
+            {plan?.errors.map(e => <p key={e} className="small" style={{margin: '6px 0 0', color: 'var(--danger)'}}>✗ {e}</p>)}
+            <div className="toolbar" style={{marginTop: 8}}>
+                <button type="button" className="small danger" disabled={!plan || plan.errors.length > 0} onClick={run}>Disconnect {checked.size || ''} line{checked.size === 1 ? '' : 's'}</button>
+            </div>
+            <p className="small muted" style={{marginBottom: 0}}>The checked lines leave their take-offs here and end open at the site junction (created when missing); their circuits stay on their paths. A line then fed from no yard, at either end or through a junction, is de-energized: its circuits, the junction nodes they meet at and the line are set to 0 V.</p>
+        </div>
     )
 }
 

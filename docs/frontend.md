@@ -926,6 +926,24 @@ immediately.
   (`TJT_<name>`; an unnamed site junction from its site's code, any other
   unnamed junction is skipped), and the junction panel's id editor offers the
   rule id as *auto*.
+* **Disconnect lines from take-offs** (`disconnectLines.ts`,
+  `buildDisconnectPlan`; site panel, *Lines through take-offs*, before
+  "Paths and circuits here"): every line leaving one of the site's yards
+  through a take-off, with its take-off and where its other end is (a take-off
+  at another site, or the place it ends without one), a checkbox each and
+  *all*. *Disconnect* takes the checked lines off their take-offs here in one
+  step: the circuit end goes to the site junction (created when missing) in a
+  node of its own (an open end) and the line ends at that junction; its
+  circuits stay on their paths. *Disconnect both ends* does the same at each
+  line's other end, into the junction of the site there. A line then fed from
+  no yard (none of the circuits reachable from its sections through junction
+  nodes ends at a yard; a line still fed through a tee or from its other end
+  stays as it is) is de-energized: those circuits are energized at 0 V (their
+  rating kept), the junction nodes they meet at and the lines made only of
+  them are set to 0 V. *Remove the take-offs left free* removes them (with the
+  in-yard connections that held them); otherwise they stay, free. The outcome
+  of each line shows before running, then a summary is confirmed. Tested in
+  `web/test/disconnect.test.ts` (docs/testing.md, section 8).
 * Site and junction panels end with "Paths and circuits here": every path
   that starts or ends there (and the path of any circuit attached there),
   each with its circuits listed as children, with the same ⚠ markers, so a
