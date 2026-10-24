@@ -481,9 +481,11 @@ immediately.
   nothing is drawn again; hovering where one is shows it again, as does
   selecting or picking the site, and a site still answers clicks there),
   *Junction areas* (off: the areas are hidden, a class on the map container
-  like *Sites*; hovering any part of a junction, its area, connectors or
-  handle, shows its area again, as does selecting or picking it, and an area
-  still answers clicks), *Paths without circuits* (the selected or edited one is always
+  like *Sites*, and so are the open circuit ends there: the spoke and dot of
+  a node holding one circuit end (black at 0 V), and the short stub with an
+  open circle of an end in no node; hovering any part of a junction, its area,
+  connectors, open ends or handle, shows them again, as does selecting or picking
+  it, and an area still answers clicks), *Paths without circuits* (the selected or edited one is always
   drawn), *Planned* (off: planned sites, circuits and connections are left
   out, and parallel lanes close up), *Below 500 kV* and *Below 230 kV* (off:
   circuits running below that voltage, by energized else rated voltage, and

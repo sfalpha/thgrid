@@ -440,6 +440,8 @@ interface Drawn {
     connections: Map<string, { pts: L.LatLng[]; weight: number }[]>
     /** Junction areas, by junction id. */
     areas: Map<string, L.CircleMarker>
+    /** The open circuit ends at a junction: the spoke and dot of a node holding one end, the stub and circle of an end in no node; by junction id. */
+    stubs: Map<string, L.Path[]>
     /** Junctions, paths and sites the toggles leave out; drawn anyway while selected or edited (`keep`). */
     hidden: Set<string>
     /** Markers can be dragged (select mode only; the overlay switches them). */
@@ -448,7 +450,7 @@ interface Drawn {
     restore: (() => void)[]
 }
 
-const emptyDrawn = (): Drawn => ({markers: new Map(), drawnAs: p => p, units: [], unusedPaths: new Map(), connections: new Map(), areas: new Map(), hidden: new Set(), draggable: true, restore: []})
+const emptyDrawn = (): Drawn => ({markers: new Map(), drawnAs: p => p, units: [], unusedPaths: new Map(), connections: new Map(), areas: new Map(), stubs: new Map(), hidden: new Set(), draggable: true, restore: []})
 
 /** Tooltip options of a site or junction label (`permanent`: shown without hovering). */
 const markerLabel = (size: number, permanent: boolean): L.TooltipOptions => ({permanent, direction: 'right', offset: [size / 2 + 2, 0], className: 'map-label'})
@@ -781,12 +783,12 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             const area = key.startsWith('J:') ? drawn.areas.get(key.slice(2)) : undefined
             if (area) {
                 area.setStyle(key === selKey ? AREA_SELECTED_STYLE : AREA_PICKED_STYLE)
-                area.getElement()?.classList.add('area-on')
-                drawn.restore.push(() => {
-                    area.setStyle(AREA_STYLE)
-                    area.getElement()?.classList.remove('area-on')
-                })
+                drawn.restore.push(() => area.setStyle(AREA_STYLE))
             }
+            // shown while the junction areas are off: its area and the stubs of its open circuit ends
+            const parts = key.startsWith('J:') ? [...(area ? [area] : []), ...drawn.stubs.get(key.slice(2)) ?? []] : []
+            for (const part of parts) part.getElement()?.classList.add('area-on')
+            if (parts.length) drawn.restore.push(() => parts.forEach(part => part.getElement()?.classList.remove('area-on')))
         }
 
         // Highlights under the lines: the selected circuit, every circuit on the selected path (a circuit's path when a
@@ -1259,8 +1261,9 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
         const rightClickJunction = (jid: string) => dropDrawn(`J:${jid}`)
         /** Hovering a layer drawn for a junction (area, connector, stub, handle) shows its area, also while the areas are off. */
         const hoverShowsArea = (l: L.Layer, jid: string) => {
-            l.on('mouseover', () => drawn.areas.get(jid)?.getElement()?.classList.add('hovered'))
-            l.on('mouseout', () => drawn.areas.get(jid)?.getElement()?.classList.remove('hovered'))
+            const parts = () => [drawn.areas.get(jid), ...drawn.stubs.get(jid) ?? []]
+            l.on('mouseover', () => parts().forEach(part => part?.getElement()?.classList.add('hovered')))
+            l.on('mouseout', () => parts().forEach(part => part?.getElement()?.classList.remove('hovered')))
         }
         /** Binds the junction's click, right-click and hover to a layer drawn for it (area, connector, stub). */
         const onJunction = (l: L.Layer, jid: string) => {
@@ -1301,30 +1304,39 @@ export function MapEditor({meta, navigate}: { meta: MetaResponse; navigate: (pat
             if (!pieces.length) continue
             const tip = `${esc(conn.name ?? conn.id)}${conn.planned ? ' · planned' : ''} · ${keys.map(k => esc(circuitName(k.slice(0, k.lastIndexOf(':'))))).join(' + ')}`
 
+            // a node holding one circuit end (an open end): its spoke and dot are hidden with the junction areas, like a stub
+            const open = keys.length === 1
+            const className = open ? 'junction-stub' : undefined
+            const openParts: L.Path[] = []
             const drawnPieces: { pts: L.LatLng[]; weight: number }[] = []
             for (const piece of pieces) {
                 const ll = toLL(piece.pts)
                 drawnPieces.push({pts: ll, weight: piece.port.weight})
-                const line = L.polyline(ll, {color: piece.port.color, weight: piece.port.weight, opacity: .95, lineCap: 'round', dashArray: conn.planned ? `1 ${piece.port.weight * 2 + 3}` : undefined})
+                const line = L.polyline(ll, {color: piece.port.color, weight: piece.port.weight, opacity: .95, lineCap: 'round', dashArray: conn.planned ? `1 ${piece.port.weight * 2 + 3}` : undefined, className})
                 line.bindTooltip(tip, {sticky: true, className: 'map-label'})
                 onJunction(line, conn.junction.id)
                 line.addTo(layer)
+                openParts.push(line)
             }
             drawn.connections.set(conn.id, drawnPieces)
             if (drawing?.dot) {
-                const node = L.circleMarker(map.layerPointToLatLng(drawing.dot), {radius: Math.max(3, pieces[0].port.weight / 2 + 1.5), stroke: false, fillColor: pieces[0].port.color, fillOpacity: 1})
+                const node = L.circleMarker(map.layerPointToLatLng(drawing.dot), {radius: Math.max(3, pieces[0].port.weight / 2 + 1.5), stroke: false, fillColor: pieces[0].port.color, fillOpacity: 1, className})
                 node.bindTooltip(tip, {sticky: true, className: 'map-label'})
                 onJunction(node, conn.junction.id)
                 node.addTo(layer)
+                openParts.push(node)
             }
+            if (open) drawn.stubs.set(conn.junction.id, [...drawn.stubs.get(conn.junction.id) ?? [], ...openParts])
         }
         for (const [key, p] of ports) {
             if (joined.has(key)) continue
             const tip = L.point(p.point.x + p.dir.x * 6, p.point.y + p.dir.y * 6)
-            const stub = L.polyline(toLL([p.point, tip]), {color: p.color, weight: p.weight, opacity: .95})
+            // like the area, hidden while the junction areas are off (unless the junction is hovered, selected or picked)
+            const stub = L.polyline(toLL([p.point, tip]), {color: p.color, weight: p.weight, opacity: .95, className: 'junction-stub'})
             onJunction(stub, p.junctionId)
             stub.addTo(layer)
-            L.circleMarker(map.layerPointToLatLng(tip), {radius: 2.5, color: p.color, weight: 1.5, fill: false, interactive: false}).addTo(layer)
+            const end = L.circleMarker(map.layerPointToLatLng(tip), {radius: 2.5, color: p.color, weight: 1.5, fill: false, interactive: false, className: 'junction-stub'}).addTo(layer)
+            drawn.stubs.set(p.junctionId, [...drawn.stubs.get(p.junctionId) ?? [], stub, end])
         }
 
         /**

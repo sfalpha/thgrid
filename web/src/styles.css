@@ -1532,10 +1532,16 @@ pre {
 }
 
 /* "Junction areas" off: the areas are hidden, except while the junction is hovered (any part of it), selected or picked;
-   an area still takes clicks and hovering. */
+   an area still takes clicks and hovering, */
 .leaflet-map.no-junction-areas path.junction-area:not(.hovered):not(.area-on) {
     fill-opacity: 0;
     stroke-opacity: 0;
+}
+
+/* and so are its open circuit ends: the spoke and dot of a node holding one end, the stub and circle of an end in no node */
+.leaflet-map.no-junction-areas path.junction-stub:not(.hovered):not(.area-on) {
+    stroke-opacity: 0;
+    fill-opacity: 0;
 }
 
 .tag.planned {
